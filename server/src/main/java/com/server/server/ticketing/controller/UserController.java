@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-@RestController
+@RestController("ticketingUserController")
 @RequestMapping("/api/users")
 public class UserController {
 

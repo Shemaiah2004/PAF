@@ -5,7 +5,7 @@ import com.server.server.ticketing.dto.response.UserSummaryResponse;
 import com.server.server.ticketing.entity.User;
 import com.server.server.ticketing.enums.Role;
 import com.server.server.ticketing.mapper.TicketingMapper;
-import com.server.server.ticketing.repository.UserRepository;
+import com.server.server.ticketing.repository.TicketingUserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,10 +14,10 @@ import java.util.List;
 @Service
 public class UserService {
 
-    private final UserRepository userRepository;
+    private final TicketingUserRepository userRepository;
     private final CurrentUserService currentUserService;
 
-    public UserService(UserRepository userRepository, CurrentUserService currentUserService) {
+    public UserService(TicketingUserRepository userRepository, CurrentUserService currentUserService) {
         this.userRepository = userRepository;
         this.currentUserService = currentUserService;
     }

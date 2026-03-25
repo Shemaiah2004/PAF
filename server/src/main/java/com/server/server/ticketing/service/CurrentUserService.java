@@ -2,7 +2,7 @@ package com.server.server.ticketing.service;
 
 import com.server.server.exception.ResourceNotFoundException;
 import com.server.server.ticketing.entity.User;
-import com.server.server.ticketing.repository.UserRepository;
+import com.server.server.ticketing.repository.TicketingUserRepository;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -15,9 +15,9 @@ import java.util.List;
 @Service
 public class CurrentUserService implements UserDetailsService {
 
-    private final UserRepository userRepository;
+    private final TicketingUserRepository userRepository;
 
-    public CurrentUserService(UserRepository userRepository) {
+    public CurrentUserService(TicketingUserRepository userRepository) {
         this.userRepository = userRepository;
     }
 

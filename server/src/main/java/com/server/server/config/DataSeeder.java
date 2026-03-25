@@ -2,7 +2,7 @@ package com.server.server.config;
 
 import com.server.server.ticketing.entity.User;
 import com.server.server.ticketing.enums.Role;
-import com.server.server.ticketing.repository.UserRepository;
+import com.server.server.ticketing.repository.TicketingUserRepository;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,7 +12,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 public class DataSeeder {
 
     @Bean
-    CommandLineRunner seedUsers(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    CommandLineRunner seedUsers(TicketingUserRepository userRepository, PasswordEncoder passwordEncoder) {
         return args -> {
             if (userRepository.count() > 0) {
                 return;
