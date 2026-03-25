@@ -8,11 +8,14 @@ interface InputProps {
   placeholder?: string;
   value?: string | number;
   onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onFocus?: (e: React.FocusEvent<HTMLInputElement>) => void;
+  onBlur?: (e: React.FocusEvent<HTMLInputElement>) => void;
   className?: string;
   min?: string;
   max?: string;
   step?: number;
   disabled?: boolean;
+  autoComplete?: string;
   success?: boolean;
   error?: boolean;
   hint?: string;
@@ -25,11 +28,14 @@ const Input: FC<InputProps> = ({
   placeholder,
   value,
   onChange,
+  onFocus,
+  onBlur,
   className = "",
   min,
   max,
   step,
   disabled = false,
+  autoComplete,
   success = false,
   error = false,
   hint,
@@ -55,10 +61,13 @@ const Input: FC<InputProps> = ({
         placeholder={placeholder}
         value={value}
         onChange={onChange}
+        onFocus={onFocus}
+        onBlur={onBlur}
         min={min}
         max={max}
         step={step}
         disabled={disabled}
+        autoComplete={autoComplete}
         className={inputClasses}
       />
 

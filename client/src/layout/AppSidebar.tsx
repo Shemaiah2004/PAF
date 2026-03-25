@@ -16,6 +16,7 @@ import {
   UserCircleIcon,
 } from "../icons";
 import { useSidebar } from "../context/SidebarContext";
+import { getStoredAuthSession, isAdminRole } from "../lib/auth";
 import SidebarWidget from "./SidebarWidget";
 
 type NavItem = {
@@ -52,9 +53,13 @@ const navItems: NavItem[] = [
     subItems: [{ name: "Form Elements", path: "/form-elements", pro: false }],
   },
   {
-    name: "Tables",
+    name: "Role Management",
     icon: <TableIcon />,
-    subItems: [{ name: "Basic Tables", path: "/basic-tables", pro: false }],
+    subItems: [
+      { name: "Role Requests", path: "/role-requests", pro: false },
+      { name: "Approval Requests", path: "/approval-requests", pro: false },
+      { name: "Signed-In Users", path: "/signed-in-users", pro: false },
+    ],
   },
   {
     name: "Pages",
@@ -100,6 +105,8 @@ const othersItems: NavItem[] = [
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const location = useLocation();
+  const authSession = getStoredAuthSession();
+  const isAdmin = isAdminRole(authSession?.role);
 
   const [openSubmenu, setOpenSubmenu] = useState<{
     type: "main" | "others";
@@ -164,6 +171,23 @@ const AppSidebar: React.FC = () => {
       return { type: menuType, index };
     });
   };
+
+  const visibleNavItems = navItems
+    .map((nav) => {
+      if (nav.name !== "Tables" || !nav.subItems) {
+        return nav;
+      }
+
+      return {
+        ...nav,
+        subItems: nav.subItems.filter(
+          (subItem) =>
+            !["/approval-requests", "/signed-in-users"].includes(subItem.path) ||
+            isAdmin
+        ),
+      };
+    })
+    .filter((nav) => !nav.subItems || nav.subItems.length > 0);
 
   const renderMenuItems = (items: NavItem[], menuType: "main" | "others") => (
     <ul className="flex flex-col gap-4">
@@ -353,7 +377,7 @@ const AppSidebar: React.FC = () => {
                   <HorizontaLDots className="size-6" />
                 )}
               </h2>
-              {renderMenuItems(navItems, "main")}
+              {renderMenuItems(visibleNavItems, "main")}
             </div>
             <div className="">
               <h2

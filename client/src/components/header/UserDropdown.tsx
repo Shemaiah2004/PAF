@@ -1,10 +1,31 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DropdownItem } from "../ui/dropdown/DropdownItem";
 import { Dropdown } from "../ui/dropdown/Dropdown";
 import { Link } from "react-router";
+import {
+  AUTH_CHANGE_EVENT,
+  clearAuthSession,
+  getStoredAuthSession,
+  getUserDisplayName,
+} from "../../lib/auth";
 
 export default function UserDropdown() {
   const [isOpen, setIsOpen] = useState(false);
+  const [authSession, setAuthSession] = useState(() => getStoredAuthSession());
+
+  useEffect(() => {
+    const syncAuthSession = () => {
+      setAuthSession(getStoredAuthSession());
+    };
+
+    window.addEventListener(AUTH_CHANGE_EVENT, syncAuthSession);
+    window.addEventListener("storage", syncAuthSession);
+
+    return () => {
+      window.removeEventListener(AUTH_CHANGE_EVENT, syncAuthSession);
+      window.removeEventListener("storage", syncAuthSession);
+    };
+  }, []);
 
   function toggleDropdown() {
     setIsOpen(!isOpen);
@@ -13,6 +34,13 @@ export default function UserDropdown() {
   function closeDropdown() {
     setIsOpen(false);
   }
+
+  const displayName = authSession
+    ? authSession.displayName?.trim() || getUserDisplayName(authSession.email)
+    : "Guest User";
+  const photoUrl = authSession?.photoUrl?.trim() || "/images/user/owner.jpg";
+  const roleLabel = authSession?.role?.trim() || "USER";
+
   return (
     <div className="relative">
       <button
@@ -20,10 +48,12 @@ export default function UserDropdown() {
         className="flex items-center text-gray-700 dropdown-toggle dark:text-gray-400"
       >
         <span className="mr-3 overflow-hidden rounded-full h-11 w-11">
-          <img src="/images/user/owner.jpg" alt="User" />
+          <img src={photoUrl} alt="User" className="h-full w-full object-cover" />
         </span>
 
-        <span className="block mr-1 font-medium text-theme-sm">Musharof</span>
+        <span className="block mr-1 font-medium text-theme-sm">
+          {displayName}
+        </span>
         <svg
           className={`stroke-gray-500 dark:stroke-gray-400 transition-transform duration-200 ${
             isOpen ? "rotate-180" : ""
@@ -50,11 +80,18 @@ export default function UserDropdown() {
         className="absolute right-0 mt-[17px] flex w-[260px] flex-col rounded-2xl border border-gray-200 bg-white p-3 shadow-theme-lg dark:border-gray-800 dark:bg-gray-dark"
       >
         <div>
-          <span className="block font-medium text-gray-700 text-theme-sm dark:text-gray-400">
-            Musharof Chowdhury
-          </span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="block font-medium text-gray-700 text-theme-sm dark:text-gray-400">
+              {displayName}
+            </span>
+            {authSession ? (
+              <span className="rounded-full bg-brand-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-brand-700 dark:bg-brand-500/10 dark:text-brand-300">
+                {roleLabel}
+              </span>
+            ) : null}
+          </div>
           <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
-            randomuser@pimjo.com
+            {authSession?.email ?? "Sign in to access your account"}
           </span>
         </div>
 
@@ -137,6 +174,10 @@ export default function UserDropdown() {
         </ul>
         <Link
           to="/signin"
+          onClick={() => {
+            clearAuthSession();
+            closeDropdown();
+          }}
           className="flex items-center gap-3 px-3 py-2 mt-3 font-medium text-gray-700 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
         >
           <svg
@@ -154,7 +195,7 @@ export default function UserDropdown() {
               fill=""
             />
           </svg>
-          Sign out
+          {authSession ? "Sign out" : "Sign in"}
         </Link>
       </Dropdown>
     </div>

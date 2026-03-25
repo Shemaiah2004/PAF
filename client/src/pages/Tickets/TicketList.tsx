@@ -121,7 +121,7 @@ export default function TicketList() {
 
         {demoMode && !error && (
           <div className="rounded-2xl border border-warning-200 bg-warning-50 p-6 text-sm text-warning-700">
-            Backend API is not running on <span className="font-semibold">localhost:8080</span>, so the page is using local demo data.
+            Backend API is not running on <span className="font-semibold">localhost:8081</span>, so the page is using local demo data.
           </div>
         )}
 
