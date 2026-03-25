@@ -18,6 +18,9 @@ import Blank from "./pages/Blank";
 import AppLayout from "./layout/AppLayout";
 import { ScrollToTop } from "./components/common/ScrollToTop";
 import Home from "./pages/Dashboard/Home";
+import TicketList from "./pages/Tickets/TicketList";
+import CreateTicketForm from "./pages/Tickets/CreateTicketForm";
+import TicketDetails from "./pages/Tickets/TicketDetails";
 
 export default function App() {
   return (
@@ -33,6 +36,9 @@ export default function App() {
             <Route path="/profile" element={<UserProfiles />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/blank" element={<Blank />} />
+            <Route path="/tickets" element={<TicketList />} />
+            <Route path="/tickets/new" element={<CreateTicketForm />} />
+            <Route path="/tickets/:ticketId" element={<TicketDetails />} />
 
             {/* Forms */}
             <Route path="/form-elements" element={<FormElements />} />
