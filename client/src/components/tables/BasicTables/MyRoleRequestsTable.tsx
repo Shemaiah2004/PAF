@@ -21,11 +21,12 @@ import {
   TrashBinIcon,
 } from "../../../icons";
 import {
-  authApiBaseUrl,
+  apiFetch,
   formatRoleLabel,
   getApiMessage,
   getStoredAuthSession,
   parseResponsePayload,
+  replaceStoredAuthSession,
 } from "../../../lib/auth";
 import {
   formatRoleRequestStatus,
@@ -34,10 +35,12 @@ import {
   isRoleRequestApiItem,
   isRoleRequestMutationApiResponse,
   normalizeRoleRequest,
+  sortRoleRequestsByNewest,
   type RoleRequestDeleteApiResponse,
   type RoleRequestApiItem,
   type RoleRequestItem,
   type RoleRequestMutationApiResponse,
+  upsertRoleRequest,
 } from "../../../lib/roleRequests";
 import {
   formatTimestamp,
@@ -47,6 +50,7 @@ import {
   roleDescriptions,
   type UserRoleValue,
 } from "../../../lib/userRoles";
+import { useRoleRequestStream } from "../../../hooks/useRoleRequestStream";
 
 type MyRoleRequestsTableProps = {
   refreshVersion: number;
@@ -84,6 +88,109 @@ export default function MyRoleRequestsTable({
     requestableRoles[0] ?? "MANAGER"
   );
 
+  useRoleRequestStream({
+    onEvent: (event) => {
+      const currentSession = getStoredAuthSession();
+      const currentUserId = currentSession?.userId ?? null;
+      const requestId = event.request?.id ?? event.requestId;
+
+      if (!currentUserId || !requestId) {
+        return;
+      }
+
+      if (event.request && event.request.requesterUserId !== currentUserId) {
+        return;
+      }
+
+      if (event.eventType === "DELETED") {
+        setRequests((currentRequests) =>
+          currentRequests.filter((currentRequest) => currentRequest.id !== requestId)
+        );
+
+        if (requestToEdit?.id === requestId) {
+          resetModalState();
+        }
+
+        if (requestToDelete?.id === requestId) {
+          setRequestToDelete(null);
+        }
+
+        if (event.actorUserId && event.actorUserId !== currentUserId) {
+          showNotification({
+            variant: "info",
+            title: "Request deleted",
+            message: event.message || "One of your role requests was deleted.",
+          });
+        }
+
+        return;
+      }
+
+      const liveRequest = event.request;
+      if (!liveRequest) {
+        return;
+      }
+
+      setRequests((currentRequests) =>
+        upsertRoleRequest(currentRequests, liveRequest, sortRoleRequestsByNewest)
+      );
+
+      if (requestToEdit?.id === liveRequest.id && liveRequest.status !== "PENDING") {
+        resetModalState();
+      }
+
+      if (requestToDelete?.id === liveRequest.id && liveRequest.status !== "PENDING") {
+        setRequestToDelete(null);
+      }
+
+      if (
+        event.eventType === "APPROVED" &&
+        event.user?.id === currentUserId &&
+        currentSession
+      ) {
+        replaceStoredAuthSession({
+          ...currentSession,
+          role: event.user.role,
+        });
+      }
+
+      if (!event.actorUserId || event.actorUserId === currentUserId) {
+        return;
+      }
+
+      switch (event.eventType) {
+        case "APPROVED":
+          showNotification({
+            variant: "success",
+            title: "Role approved",
+            message:
+              event.message ||
+              `Your ${formatRoleLabel(liveRequest.requestedRole)} request was approved.`,
+          });
+          break;
+        case "REJECTED":
+          showNotification({
+            variant: "warning",
+            title: "Role request rejected",
+            message:
+              liveRequest.rejectionReason ||
+              event.message ||
+              "An admin rejected your role request.",
+          });
+          break;
+        case "UPDATED":
+          showNotification({
+            variant: "info",
+            title: "Request updated",
+            message: event.message || "One of your role requests was updated.",
+          });
+          break;
+        default:
+          break;
+      }
+    },
+  });
+
   useEffect(() => {
     setSelectedRole((currentSelectedRole) =>
       requestableRoles.includes(currentSelectedRole)
@@ -106,11 +213,8 @@ export default function MyRoleRequestsTable({
           return;
         }
 
-        const response = await fetch(`${authApiBaseUrl}/api/role-requests/my`, {
+        const response = await apiFetch("/api/role-requests/my", {
           signal: abortController.signal,
-          headers: {
-            "X-Auth-User-Id": authSession.userId,
-          },
         });
 
         const rawResponse = await response.text();
@@ -133,7 +237,7 @@ export default function MyRoleRequestsTable({
           return;
         }
 
-        setRequests(payload.map(normalizeRoleRequest));
+        setRequests(sortRoleRequestsByNewest(payload.map(normalizeRoleRequest)));
       } catch (fetchError) {
         if (fetchError instanceof DOMException && fetchError.name === "AbortError") {
           return;
@@ -243,15 +347,14 @@ export default function MyRoleRequestsTable({
     setSubmitError("");
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         isEditingRequest
-          ? `${authApiBaseUrl}/api/role-requests/${requestToEdit?.id ?? ""}`
-          : `${authApiBaseUrl}/api/role-requests`,
+          ? `/api/role-requests/${requestToEdit?.id ?? ""}`
+          : "/api/role-requests",
         {
           method: isEditingRequest ? "PATCH" : "POST",
           headers: {
             "Content-Type": "application/json",
-            "X-Auth-User-Id": authSession.userId,
           },
           body: JSON.stringify({
             requestedRole: selectedRole,
@@ -298,12 +401,12 @@ export default function MyRoleRequestsTable({
 
       if (isEditingRequest) {
         setRequests((currentRequests) =>
-          currentRequests.map((currentRequest) =>
-            currentRequest.id === savedRequest.id ? savedRequest : currentRequest
-          )
+          upsertRoleRequest(currentRequests, savedRequest, sortRoleRequestsByNewest)
         );
       } else {
-        setRequests((currentRequests) => [savedRequest, ...currentRequests]);
+        setRequests((currentRequests) =>
+          upsertRoleRequest(currentRequests, savedRequest, sortRoleRequestsByNewest)
+        );
       }
 
       resetModalState();
@@ -347,15 +450,9 @@ export default function MyRoleRequestsTable({
     setDeletingRequestId(roleRequest.id);
 
     try {
-      const response = await fetch(
-        `${authApiBaseUrl}/api/role-requests/${roleRequest.id}`,
-        {
-          method: "DELETE",
-          headers: {
-            "X-Auth-User-Id": authSession.userId,
-          },
-        }
-      );
+      const response = await apiFetch(`/api/role-requests/${roleRequest.id}`, {
+        method: "DELETE",
+      });
 
       const rawResponse = await response.text();
       const payload = parseResponsePayload<
@@ -413,7 +510,7 @@ export default function MyRoleRequestsTable({
           </div>
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Submit a request when you need higher application access. Admins can
-            review and approve it from the same page.
+            review it and either approve or reject it with feedback.
           </p>
         </div>
 
@@ -536,8 +633,20 @@ export default function MyRoleRequestsTable({
                         {formatRoleLabel(request.currentRole)}
                       </TableCell>
                       <TableCell className="px-5 py-4 text-start text-theme-sm text-gray-500 dark:text-gray-400">
-                        <div className="max-w-xl whitespace-pre-wrap">
-                          {request.description || "No description provided."}
+                        <div className="max-w-xl space-y-3">
+                          <div className="whitespace-pre-wrap">
+                            {request.description || "No description provided."}
+                          </div>
+                          {request.rejectionReason ? (
+                            <div className="rounded-lg border border-error-200 bg-error-50 px-3 py-3 text-xs text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300">
+                              <span className="font-semibold">
+                                Why this request was rejected:
+                              </span>{" "}
+                              <span className="whitespace-pre-wrap">
+                                {request.rejectionReason}
+                              </span>
+                            </div>
+                          ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="px-5 py-4 text-start text-theme-sm text-gray-500 dark:text-gray-400">

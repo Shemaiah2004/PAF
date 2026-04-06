@@ -67,6 +67,18 @@ const emitAuthChange = () => {
   }
 };
 
+const resolveApiUrl = (input: string | URL) => {
+  if (input instanceof URL) {
+    return input.toString();
+  }
+
+  if (/^https?:\/\//i.test(input)) {
+    return input;
+  }
+
+  return `${authApiBaseUrl}${input.startsWith("/") ? input : `/${input}`}`;
+};
+
 export const parseResponsePayload = <T>(rawResponse: string): T | null => {
   if (!rawResponse) {
     return null;
@@ -191,4 +203,45 @@ export const getUserDisplayName = (email: string) => {
     .join(" ");
 
   return displayName || "Signed In User";
+};
+
+export const apiFetch = async (
+  input: string | URL,
+  init: RequestInit = {}
+) => {
+  const response = await fetch(resolveApiUrl(input), {
+    ...init,
+    credentials: "include",
+  });
+
+  if (response.status === 401) {
+    clearAuthSession();
+  }
+
+  return response;
+};
+
+export const restoreAuthSessionFromServer = async () => {
+  const response = await apiFetch("/api/auth/me");
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const rawResponse = await response.text();
+  const payload = parseResponsePayload<Partial<AuthApiResponse>>(rawResponse);
+  return payload ? buildAuthSession(payload) : null;
+};
+
+export const signOutFromServer = async () => {
+  const response = await apiFetch("/api/auth/signout", {
+    method: "POST",
+  });
+
+  if (!response.ok && response.status !== 401) {
+    throw new Error("Unable to sign out right now.");
+  }
+
+  clearAuthSession();
+  return response;
 };

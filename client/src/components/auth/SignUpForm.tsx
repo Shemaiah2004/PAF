@@ -7,7 +7,7 @@ import Button from "../ui/button/Button";
 import LoadingIndicator from "../common/LoadingIndicator";
 import { useNotification } from "../common/NotificationProvider";
 import {
-  authApiBaseUrl,
+  apiFetch,
   getApiMessage,
   parseResponsePayload,
 } from "../../lib/auth";
@@ -80,7 +80,7 @@ export default function SignUpForm() {
     const trimmedEmail = formData.email.trim();
 
     try {
-      const response = await fetch(`${authApiBaseUrl}/api/auth/signup`, {
+      const response = await apiFetch("/api/auth/signup", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

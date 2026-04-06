@@ -13,6 +13,7 @@ public record RoleRequestItemResponse(
         UserRole requestedRole,
         String description,
         RoleRequestStatus status,
+        String rejectionReason,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         LocalDateTime reviewedAt) {

@@ -9,7 +9,7 @@ import GoogleSignInButton from "./GoogleSignInButton";
 import LoadingIndicator from "../common/LoadingIndicator";
 import { useNotification } from "../common/NotificationProvider";
 import {
-  authApiBaseUrl,
+  apiFetch,
   buildAuthSession,
   formatRoleLabel,
   getApiMessage,
@@ -154,7 +154,7 @@ export default function SignInForm() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`${authApiBaseUrl}/api/auth/signin`, {
+      const response = await apiFetch("/api/auth/signin", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -213,7 +213,7 @@ export default function SignInForm() {
     setIsGoogleSubmitting(true);
 
     try {
-      const response = await fetch(`${authApiBaseUrl}/api/auth/google`, {
+      const response = await apiFetch("/api/auth/google", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

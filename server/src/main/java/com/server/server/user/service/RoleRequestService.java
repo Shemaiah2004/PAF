@@ -27,14 +27,17 @@ public class RoleRequestService {
     private final RoleRequestRepository roleRequestRepository;
     private final UserRepository userRepository;
     private final UserAccessService userAccessService;
+    private final RoleRequestRealtimeService roleRequestRealtimeService;
 
     public RoleRequestService(
             RoleRequestRepository roleRequestRepository,
             UserRepository userRepository,
-            UserAccessService userAccessService) {
+            UserAccessService userAccessService,
+            RoleRequestRealtimeService roleRequestRealtimeService) {
         this.roleRequestRepository = roleRequestRepository;
         this.userRepository = userRepository;
         this.userAccessService = userAccessService;
+        this.roleRequestRealtimeService = roleRequestRealtimeService;
     }
 
     public List<RoleRequestItemResponse> getMyRoleRequests(String requesterUserId) {
@@ -86,10 +89,17 @@ public class RoleRequestService {
 
         RoleRequest savedRequest = roleRequestRepository.save(roleRequest);
 
-        return new RoleRequestMutationResponse(
+        RoleRequestMutationResponse response = new RoleRequestMutationResponse(
                 "Role request submitted successfully. An admin can review it now.",
                 mapToRoleRequestResponse(savedRequest),
                 null);
+
+        roleRequestRealtimeService.publishRequestCreated(
+                requester.getId(),
+                response.request(),
+                response.message());
+
+        return response;
     }
 
     public RoleRequestMutationResponse approveRoleRequest(String adminUserId, String requestId) {
@@ -104,10 +114,22 @@ public class RoleRequestService {
         UserRole currentUserRole = getUserRole(requester);
 
         if (roleRequest.getStatus() == RoleRequestStatus.APPROVED) {
-            return new RoleRequestMutationResponse(
+            RoleRequestMutationResponse response = new RoleRequestMutationResponse(
                     "Role request was already approved.",
                     mapToRoleRequestResponse(roleRequest),
                     mapToUserResponse(requester));
+
+            roleRequestRealtimeService.publishRequestApproved(
+                    adminUser.getId(),
+                    response.request(),
+                    response.user(),
+                    response.message());
+
+            return response;
+        }
+
+        if (roleRequest.getStatus() == RoleRequestStatus.REJECTED) {
+            throw new InvalidRoleRequestException("Rejected role requests cannot be approved.");
         }
 
         boolean roleChanged = currentUserRole != requestedRole;
@@ -123,16 +145,83 @@ public class RoleRequestService {
         roleRequest.setReviewedAt(now);
         roleRequest.setReviewedByUserId(adminUser.getId());
         roleRequest.setReviewedByEmail(adminUser.getEmail());
+        roleRequest.setRejectionReason(null);
 
         RoleRequest savedRequest = roleRequestRepository.save(roleRequest);
         String message = roleChanged
                 ? "Role request approved and user role updated to " + requestedRole + "."
                 : "Role request approved. The user already had the " + requestedRole + " role.";
 
-        return new RoleRequestMutationResponse(
+        RoleRequestMutationResponse response = new RoleRequestMutationResponse(
                 message,
                 mapToRoleRequestResponse(savedRequest),
                 mapToUserResponse(requester));
+
+        roleRequestRealtimeService.publishRequestApproved(
+                adminUser.getId(),
+                response.request(),
+                response.user(),
+                response.message());
+
+        return response;
+    }
+
+    public RoleRequestMutationResponse rejectRoleRequest(String adminUserId, String requestId, String rejectionReason) {
+        User adminUser = userAccessService.getAuthenticatedUser(adminUserId);
+        RoleRequest roleRequest = roleRequestRepository.findById(requestId)
+                .orElseThrow(() -> new RoleRequestNotFoundException("Role request not found."));
+
+        String normalizedReason = rejectionReason != null ? rejectionReason.trim() : "";
+        if (normalizedReason.isEmpty()) {
+            throw new InvalidRoleRequestException("Rejection reason is required.");
+        }
+
+        if (roleRequest.getStatus() == RoleRequestStatus.APPROVED) {
+            throw new InvalidRoleRequestException("Approved role requests cannot be rejected.");
+        }
+
+        if (roleRequest.getStatus() == RoleRequestStatus.REJECTED) {
+            roleRequest.setRejectionReason(normalizedReason);
+            roleRequest.setUpdatedAt(LocalDateTime.now());
+            roleRequest.setReviewedAt(roleRequest.getUpdatedAt());
+            roleRequest.setReviewedByUserId(adminUser.getId());
+            roleRequest.setReviewedByEmail(adminUser.getEmail());
+
+            RoleRequest savedRequest = roleRequestRepository.save(roleRequest);
+            RoleRequestMutationResponse response = new RoleRequestMutationResponse(
+                    "Role request was already rejected. The rejection reason was updated.",
+                    mapToRoleRequestResponse(savedRequest),
+                    null);
+
+            roleRequestRealtimeService.publishRequestRejected(
+                    adminUser.getId(),
+                    response.request(),
+                    response.message());
+
+            return response;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        roleRequest.setStatus(RoleRequestStatus.REJECTED);
+        roleRequest.setUpdatedAt(now);
+        roleRequest.setReviewedAt(now);
+        roleRequest.setReviewedByUserId(adminUser.getId());
+        roleRequest.setReviewedByEmail(adminUser.getEmail());
+        roleRequest.setRejectionReason(normalizedReason);
+
+        RoleRequest savedRequest = roleRequestRepository.save(roleRequest);
+
+        RoleRequestMutationResponse response = new RoleRequestMutationResponse(
+                "Role request rejected and feedback sent to the requester.",
+                mapToRoleRequestResponse(savedRequest),
+                null);
+
+        roleRequestRealtimeService.publishRequestRejected(
+                adminUser.getId(),
+                response.request(),
+                response.message());
+
+        return response;
     }
 
     public RoleRequestMutationResponse updateRoleRequest(
@@ -171,26 +260,41 @@ public class RoleRequestService {
 
         RoleRequest savedRequest = roleRequestRepository.save(roleRequest);
 
-        return new RoleRequestMutationResponse(
+        RoleRequestMutationResponse response = new RoleRequestMutationResponse(
                 "Role request updated successfully.",
                 mapToRoleRequestResponse(savedRequest),
                 null);
+
+        roleRequestRealtimeService.publishRequestUpdated(
+                requester.getId(),
+                response.request(),
+                response.message());
+
+        return response;
     }
 
     public RoleRequestDeleteResponse deleteRoleRequest(String actorUserId, String requestId) {
         RoleRequest roleRequest = roleRequestRepository.findById(requestId)
                 .orElseThrow(() -> new RoleRequestNotFoundException("Role request not found."));
 
-        userAccessService.assertSelfOrAdmin(
+        userAccessService.assertSelfAccess(
                 actorUserId,
                 roleRequest.getRequesterUserId(),
                 "You can only delete your own role requests.");
 
+        RoleRequestItemResponse deletedRequest = mapToRoleRequestResponse(roleRequest);
         roleRequestRepository.delete(roleRequest);
 
-        return new RoleRequestDeleteResponse(
+        RoleRequestDeleteResponse response = new RoleRequestDeleteResponse(
                 "Role request deleted successfully.",
                 roleRequest.getId());
+
+        roleRequestRealtimeService.publishRequestDeleted(
+                actorUserId,
+                deletedRequest,
+                response.message());
+
+        return response;
     }
 
     private RoleRequestItemResponse mapToRoleRequestResponse(RoleRequest roleRequest) {
@@ -205,6 +309,7 @@ public class RoleRequestService {
                 roleRequest.getRequestedRole() != null ? roleRequest.getRequestedRole() : UserRole.USER,
                 roleRequest.getDescription(),
                 roleRequest.getStatus() != null ? roleRequest.getStatus() : RoleRequestStatus.PENDING,
+                roleRequest.getRejectionReason(),
                 roleRequest.getCreatedAt(),
                 roleRequest.getUpdatedAt(),
                 roleRequest.getReviewedAt());

@@ -16,7 +16,7 @@ import Input from "../../form/input/InputField";
 import LoadingIndicator from "../../common/LoadingIndicator";
 import { useNotification } from "../../common/NotificationProvider";
 import {
-  authApiBaseUrl,
+  apiFetch,
   formatRoleLabel,
   getApiMessage,
   getStoredAuthSession,
@@ -228,11 +228,8 @@ export default function BasicTableOne() {
           return;
         }
 
-        const response = await fetch(`${authApiBaseUrl}/api/users`, {
+        const response = await apiFetch("/api/users", {
           signal: abortController.signal,
-          headers: {
-            "X-Auth-User-Id": authSession.userId,
-          },
         });
         const rawResponse = await response.text();
         const payload = parseResponsePayload<
@@ -293,14 +290,11 @@ export default function BasicTableOne() {
         }
 
         const requestUrl = searchParams.toString()
-          ? `${authApiBaseUrl}/api/users?${searchParams.toString()}`
-          : `${authApiBaseUrl}/api/users`;
+          ? `/api/users?${searchParams.toString()}`
+          : "/api/users";
 
-        const response = await fetch(requestUrl, {
+        const response = await apiFetch(requestUrl, {
           signal: abortController.signal,
-          headers: {
-            "X-Auth-User-Id": authSession.userId,
-          },
         });
         const rawResponse = await response.text();
         const payload = parseResponsePayload<
@@ -363,19 +357,15 @@ export default function BasicTableOne() {
     setRoleError("");
 
     try {
-      const response = await fetch(
-        `${authApiBaseUrl}/api/users/${selectedUser.id}/role`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Auth-User-Id": authSession.userId,
-          },
-          body: JSON.stringify({
-            role: selectedRole,
-          }),
-        }
-      );
+      const response = await apiFetch(`/api/users/${selectedUser.id}/role`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          role: selectedRole,
+        }),
+      });
 
       const rawResponse = await response.text();
       const payload = parseResponsePayload<

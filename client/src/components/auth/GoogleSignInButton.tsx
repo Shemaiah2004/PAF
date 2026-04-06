@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { authApiBaseUrl, parseResponsePayload } from "../../lib/auth";
+import { apiFetch, parseResponsePayload } from "../../lib/auth";
 import LoadingIndicator from "../common/LoadingIndicator";
 
 type GoogleSignInButtonProps = {
@@ -114,7 +114,7 @@ export default function GoogleSignInButton({
 
     setStatusMessage("Checking Google sign-in configuration...");
 
-    fetch(`${authApiBaseUrl}/api/auth/config`)
+    apiFetch("/api/auth/config")
       .then(async (response) => {
         const rawResponse = await response.text();
         const payload = parseResponsePayload<AuthConfigResponse>(rawResponse);

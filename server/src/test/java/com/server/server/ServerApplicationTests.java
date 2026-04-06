@@ -1,19 +1,5 @@
 package com.server.server;
 
-import com.server.server.auth.controller.AuthController;
-import com.server.server.auth.dto.AuthResponse;
-import com.server.server.auth.entity.UserRole;
-import com.server.server.auth.exception.DuplicateEmailException;
-import com.server.server.auth.exception.InvalidCredentialsException;
-import com.server.server.auth.service.AuthService;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.dao.DataAccessResourceFailureException;
-import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.MockMvc;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -21,7 +7,35 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.server.server.auth.controller.AuthController;
+import com.server.server.auth.dto.AuthResponse;
+import com.server.server.auth.entity.UserRole;
+import com.server.server.auth.exception.DuplicateEmailException;
+import com.server.server.auth.exception.InvalidCredentialsException;
+import com.server.server.auth.repository.UserRepository;
+import com.server.server.auth.security.RestAccessDeniedHandler;
+import com.server.server.auth.security.RestAuthenticationEntryPoint;
+import com.server.server.auth.security.SessionAuthenticationService;
+import com.server.server.auth.security.UserSessionRefreshFilter;
+import com.server.server.auth.service.AuthService;
+import com.server.server.config.SecurityConfig;
+import com.server.server.user.service.UserAccessService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
 @WebMvcTest(AuthController.class)
+@Import({
+        SecurityConfig.class,
+        RestAuthenticationEntryPoint.class,
+        RestAccessDeniedHandler.class,
+        UserSessionRefreshFilter.class
+})
 class ServerApplicationTests {
 
     @Autowired
@@ -29,6 +43,15 @@ class ServerApplicationTests {
 
     @MockitoBean
     private AuthService authService;
+
+    @MockitoBean
+    private SessionAuthenticationService sessionAuthenticationService;
+
+    @MockitoBean
+    private UserAccessService userAccessService;
+
+    @MockitoBean
+    private UserRepository userRepository;
 
     @Test
     void contextLoads() {

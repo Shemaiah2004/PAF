@@ -6,17 +6,17 @@ import {
   BoxCubeIcon,
   CalenderIcon,
   ChevronDownIcon,
+  GroupIcon,
   GridIcon,
   HorizontaLDots,
   ListIcon,
   PageIcon,
   PieChartIcon,
   PlugInIcon,
-  TableIcon,
   UserCircleIcon,
 } from "../icons";
 import { useSidebar } from "../context/SidebarContext";
-import { getStoredAuthSession, isAdminRole } from "../lib/auth";
+import { AUTH_CHANGE_EVENT, getStoredAuthSession, isAdminRole } from "../lib/auth";
 import SidebarWidget from "./SidebarWidget";
 
 type NavItem = {
@@ -38,6 +38,15 @@ const navItems: NavItem[] = [
     path: "/calendar",
   },
   {
+    name: "Role Management",
+    icon: <GroupIcon />,
+    subItems: [
+      { name: "Role Requests", path: "/role-requests", pro: false },
+      { name: "Approval Requests", path: "/approval-requests", pro: false },
+      { name: "Signed-In Users", path: "/signed-in-users", pro: false },
+    ],
+  },
+  {
     icon: <UserCircleIcon />,
     name: "User Profile",
     path: "/profile",
@@ -52,15 +61,7 @@ const navItems: NavItem[] = [
     icon: <ListIcon />,
     subItems: [{ name: "Form Elements", path: "/form-elements", pro: false }],
   },
-  {
-    name: "Role Management",
-    icon: <TableIcon />,
-    subItems: [
-      { name: "Role Requests", path: "/role-requests", pro: false },
-      { name: "Approval Requests", path: "/approval-requests", pro: false },
-      { name: "Signed-In Users", path: "/signed-in-users", pro: false },
-    ],
-  },
+
   {
     name: "Pages",
     icon: <PageIcon />,
@@ -105,7 +106,7 @@ const othersItems: NavItem[] = [
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const location = useLocation();
-  const authSession = getStoredAuthSession();
+  const [authSession, setAuthSession] = useState(() => getStoredAuthSession());
   const isAdmin = isAdminRole(authSession?.role);
 
   const [openSubmenu, setOpenSubmenu] = useState<{
@@ -159,6 +160,20 @@ const AppSidebar: React.FC = () => {
     }
   }, [openSubmenu]);
 
+  useEffect(() => {
+    const syncAuthSession = () => {
+      setAuthSession(getStoredAuthSession());
+    };
+
+    window.addEventListener(AUTH_CHANGE_EVENT, syncAuthSession);
+    window.addEventListener("storage", syncAuthSession);
+
+    return () => {
+      window.removeEventListener(AUTH_CHANGE_EVENT, syncAuthSession);
+      window.removeEventListener("storage", syncAuthSession);
+    };
+  }, []);
+
   const handleSubmenuToggle = (index: number, menuType: "main" | "others") => {
     setOpenSubmenu((prevOpenSubmenu) => {
       if (
@@ -174,7 +189,7 @@ const AppSidebar: React.FC = () => {
 
   const visibleNavItems = navItems
     .map((nav) => {
-      if (nav.name !== "Tables" || !nav.subItems) {
+      if (nav.name !== "Role Management" || !nav.subItems) {
         return nav;
       }
 

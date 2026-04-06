@@ -1,6 +1,7 @@
 package com.server.server.auth.service;
 
 import com.server.server.auth.dto.AuthResponse;
+import com.server.server.auth.dto.AuthResponses;
 import com.server.server.auth.dto.GoogleSignInRequest;
 import com.server.server.auth.dto.SignInRequest;
 import com.server.server.auth.dto.SignUpRequest;
@@ -49,7 +50,7 @@ public class AuthService {
         try {
             User savedUser = userRepository.save(user);
 
-            return buildAuthResponse(savedUser, "Account created successfully.", "LOCAL");
+            return AuthResponses.fromUser(savedUser, "Account created successfully.");
         } catch (DuplicateKeyException exception) {
             throw new DuplicateEmailException("An account with this email already exists");
         }
@@ -70,7 +71,7 @@ public class AuthService {
         }
 
         User normalizedUser = ensureUserRole(user);
-        return buildAuthResponse(normalizedUser, "Signed in successfully.", "LOCAL");
+        return AuthResponses.fromUser(normalizedUser, "Signed in successfully.");
     }
 
     public AuthResponse signInWithGoogle(GoogleSignInRequest request) {
@@ -116,23 +117,10 @@ public class AuthService {
             String message = isNewUser
                     ? "Google account connected successfully."
                     : "Signed in with Google successfully.";
-            return buildAuthResponse(savedUser, message, "GOOGLE");
+            return AuthResponses.fromUser(savedUser, message);
         } catch (DuplicateKeyException exception) {
             throw new DuplicateEmailException("An account with this email already exists");
         }
-    }
-
-    private AuthResponse buildAuthResponse(User user, String message, String provider) {
-        UserRole role = user.getRole() != null ? user.getRole() : UserRole.USER;
-
-        return new AuthResponse(
-                user.getId(),
-                user.getEmail(),
-                message,
-                user.getDisplayName(),
-                user.getPhotoUrl(),
-                provider,
-                role);
     }
 
     private User ensureUserRole(User user) {

@@ -15,13 +15,13 @@ export default function ApprovalRequests() {
     <>
       <PageMeta
         title="Approval Requests | PAF Auth Dashboard"
-        description="Review submitted role requests and approve access changes."
+        description="Review submitted role requests and approve or reject access changes."
       />
       <PageBreadcrumb pageTitle="Approval Requests" />
       <div className="space-y-6">
         <ComponentCard
           title="Approval Requests"
-          desc="Review incoming role requests from signed-in users and approve access changes."
+          desc="Review incoming role requests from signed-in users and approve or reject access changes."
         >
           <AdminRoleRequestsTable
             refreshVersion={requestRefreshVersion}

@@ -37,6 +37,8 @@ public class RoleRequest {
 
     private String reviewedByEmail;
 
+    private String rejectionReason;
+
     public String getId() {
         return id;
     }
@@ -139,5 +141,13 @@ public class RoleRequest {
 
     public void setReviewedByEmail(String reviewedByEmail) {
         this.reviewedByEmail = reviewedByEmail;
+    }
+
+    public String getRejectionReason() {
+        return rejectionReason;
+    }
+
+    public void setRejectionReason(String rejectionReason) {
+        this.rejectionReason = rejectionReason;
     }
 }

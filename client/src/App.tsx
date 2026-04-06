@@ -51,7 +51,7 @@ export default function App() {
               {/* Forms */}
               <Route path="/form-elements" element={<FormElements />} />
 
-              {/* Tables */}
+              {/* Role Management */}
               <Route path="/role-requests" element={<BasicTables />} />
               <Route element={<RequireAdmin />}>
                 <Route

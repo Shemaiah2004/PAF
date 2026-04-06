@@ -6,6 +6,7 @@ import "simplebar-react/dist/simplebar.min.css";
 import App from "./App.tsx";
 import { AppWrapper } from "./components/common/PageMeta.tsx";
 import { NotificationProvider } from "./components/common/NotificationProvider.tsx";
+import { AuthSessionProvider } from "./context/AuthSessionContext.tsx";
 import { ThemeProvider } from "./context/ThemeContext.tsx";
 
 createRoot(document.getElementById("root")!).render(
@@ -13,7 +14,9 @@ createRoot(document.getElementById("root")!).render(
     <ThemeProvider>
       <AppWrapper>
         <NotificationProvider>
-          <App />
+          <AuthSessionProvider>
+            <App />
+          </AuthSessionProvider>
         </NotificationProvider>
       </AppWrapper>
     </ThemeProvider>

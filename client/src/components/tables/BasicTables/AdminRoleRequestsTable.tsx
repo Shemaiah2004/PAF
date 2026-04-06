@@ -9,11 +9,13 @@ import {
 import Badge from "../../ui/badge/Badge";
 import Button from "../../ui/button/Button";
 import { Modal } from "../../ui/modal";
+import Label from "../../form/Label";
+import TextArea from "../../form/input/TextArea";
 import LoadingIndicator from "../../common/LoadingIndicator";
 import { useNotification } from "../../common/NotificationProvider";
-import { CheckLineIcon, TrashBinIcon } from "../../../icons";
+import { CheckLineIcon, CloseIcon } from "../../../icons";
 import {
-  authApiBaseUrl,
+  apiFetch,
   formatRoleLabel,
   getApiMessage,
   getStoredAuthSession,
@@ -27,15 +29,18 @@ import {
   isRoleRequestApiItem,
   isRoleRequestMutationApiResponse,
   normalizeRoleRequest,
+  sortAdminRoleRequests,
   type RoleRequestApiItem,
   type RoleRequestItem,
   type RoleRequestMutationApiResponse,
+  upsertRoleRequest,
 } from "../../../lib/roleRequests";
 import {
   formatTimestamp,
   getUserInitials,
   normalizeRole,
 } from "../../../lib/userRoles";
+import { useRoleRequestStream } from "../../../hooks/useRoleRequestStream";
 
 type AdminRoleRequestsTableProps = {
   refreshVersion: number;
@@ -43,11 +48,6 @@ type AdminRoleRequestsTableProps = {
 };
 
 const tableColumnCount = 7;
-
-type RoleRequestDeleteApiResponse = {
-  message?: string;
-  requestId?: string;
-};
 
 export default function AdminRoleRequestsTable({
   refreshVersion,
@@ -61,13 +61,123 @@ export default function AdminRoleRequestsTable({
   const [approvingRequestId, setApprovingRequestId] = useState<string | null>(
     null
   );
-  const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
+  const [rejectingRequestId, setRejectingRequestId] = useState<string | null>(
+    null
+  );
   const [requestToConfirm, setRequestToConfirm] = useState<RoleRequestItem | null>(
     null
   );
-  const [requestToDelete, setRequestToDelete] = useState<RoleRequestItem | null>(
+  const [requestToReject, setRequestToReject] = useState<RoleRequestItem | null>(
     null
   );
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [rejectionError, setRejectionError] = useState("");
+
+  useRoleRequestStream({
+    includeAdminEvents: true,
+    onEvent: (event) => {
+      const currentUserId = getStoredAuthSession()?.userId ?? null;
+      const requestId = event.request?.id ?? event.requestId;
+
+      if (!requestId) {
+        return;
+      }
+
+      if (event.eventType === "DELETED") {
+        setRequests((currentRequests) =>
+          currentRequests.filter((currentRequest) => currentRequest.id !== requestId)
+        );
+
+        if (requestToConfirm?.id === requestId) {
+          setRequestToConfirm(null);
+        }
+
+        if (requestToReject?.id === requestId) {
+          setRequestToReject(null);
+          setRejectionReason("");
+          setRejectionError("");
+        }
+
+        if (event.actorUserId && event.actorUserId !== currentUserId) {
+          showNotification({
+            variant: "info",
+            title: "Request deleted",
+            message:
+              event.message ||
+              "A role request was deleted and removed from the approval list.",
+          });
+        }
+
+        return;
+      }
+
+      const liveRequest = event.request;
+      if (!liveRequest) {
+        return;
+      }
+
+      setRequests((currentRequests) =>
+        upsertRoleRequest(currentRequests, liveRequest, sortAdminRoleRequests)
+      );
+
+      if (liveRequest.status !== "PENDING") {
+        if (requestToConfirm?.id === liveRequest.id) {
+          setRequestToConfirm(null);
+        }
+
+        if (requestToReject?.id === liveRequest.id) {
+          setRequestToReject(null);
+          setRejectionReason("");
+          setRejectionError("");
+        }
+      }
+
+      if (!event.actorUserId || event.actorUserId === currentUserId) {
+        return;
+      }
+
+      switch (event.eventType) {
+        case "CREATED":
+          showNotification({
+            variant: "info",
+            title: "New request received",
+            message:
+              event.message ||
+              `${liveRequest.requesterDisplayName} submitted a new role request.`,
+          });
+          break;
+        case "UPDATED":
+          showNotification({
+            variant: "info",
+            title: "Request updated",
+            message:
+              event.message ||
+              `${liveRequest.requesterDisplayName} updated a role request.`,
+          });
+          break;
+        case "APPROVED":
+          showNotification({
+            variant: "success",
+            title: "Request approved",
+            message:
+              event.message ||
+              `${liveRequest.requesterDisplayName}'s request was approved.`,
+          });
+          break;
+        case "REJECTED":
+          showNotification({
+            variant: "warning",
+            title: "Request rejected",
+            message:
+              event.message ||
+              `${liveRequest.requesterDisplayName}'s request was rejected.`,
+          });
+          break;
+        default:
+          break;
+      }
+    },
+  });
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -89,11 +199,8 @@ export default function AdminRoleRequestsTable({
           return;
         }
 
-        const response = await fetch(`${authApiBaseUrl}/api/role-requests`, {
+        const response = await apiFetch("/api/role-requests", {
           signal: abortController.signal,
-          headers: {
-            "X-Auth-User-Id": authSession.userId,
-          },
         });
 
         const rawResponse = await response.text();
@@ -116,7 +223,7 @@ export default function AdminRoleRequestsTable({
           return;
         }
 
-        setRequests(payload.map(normalizeRoleRequest));
+        setRequests(sortAdminRoleRequests(payload.map(normalizeRoleRequest)));
       } catch (fetchError) {
         if (fetchError instanceof DOMException && fetchError.name === "AbortError") {
           return;
@@ -137,11 +244,17 @@ export default function AdminRoleRequestsTable({
   }, [refreshVersion]);
 
   const handleOpenApproveModal = (roleRequest: RoleRequestItem) => {
-    if (roleRequest.status === "APPROVED" || approvingRequestId || deletingRequestId) {
+    if (
+      roleRequest.status !== "PENDING" ||
+      approvingRequestId ||
+      rejectingRequestId
+    ) {
       return;
     }
 
-    setRequestToDelete(null);
+    setRequestToReject(null);
+    setRejectionReason("");
+    setRejectionError("");
     setRequestToConfirm(roleRequest);
   };
 
@@ -153,21 +266,29 @@ export default function AdminRoleRequestsTable({
     setRequestToConfirm(null);
   };
 
-  const handleOpenDeleteModal = (roleRequest: RoleRequestItem) => {
-    if (approvingRequestId || deletingRequestId) {
+  const handleOpenRejectModal = (roleRequest: RoleRequestItem) => {
+    if (
+      roleRequest.status !== "PENDING" ||
+      approvingRequestId ||
+      rejectingRequestId
+    ) {
       return;
     }
 
     setRequestToConfirm(null);
-    setRequestToDelete(roleRequest);
+    setRequestToReject(roleRequest);
+    setRejectionReason("");
+    setRejectionError("");
   };
 
-  const handleCloseDeleteModal = () => {
-    if (deletingRequestId) {
+  const handleCloseRejectModal = () => {
+    if (rejectingRequestId) {
       return;
     }
 
-    setRequestToDelete(null);
+    setRequestToReject(null);
+    setRejectionReason("");
+    setRejectionError("");
   };
 
   const handleApproveRequest = async (roleRequest: RoleRequestItem) => {
@@ -185,13 +306,10 @@ export default function AdminRoleRequestsTable({
     setApprovingRequestId(roleRequest.id);
 
     try {
-      const response = await fetch(
-        `${authApiBaseUrl}/api/role-requests/${roleRequest.id}/approve`,
+      const response = await apiFetch(
+        `/api/role-requests/${roleRequest.id}/approve`,
         {
           method: "PATCH",
-          headers: {
-            "X-Auth-User-Id": authSession.userId,
-          },
         }
       );
 
@@ -225,9 +343,7 @@ export default function AdminRoleRequestsTable({
 
       const updatedRequest = normalizeRoleRequest(payload.request);
       setRequests((currentRequests) =>
-        currentRequests.map((currentRequest) =>
-          currentRequest.id === updatedRequest.id ? updatedRequest : currentRequest
-        )
+        upsertRoleRequest(currentRequests, updatedRequest, sortAdminRoleRequests)
       );
       setRequestToConfirm(null);
 
@@ -258,66 +374,96 @@ export default function AdminRoleRequestsTable({
     }
   };
 
-  const handleDeleteRequest = async (roleRequest: RoleRequestItem) => {
+  const handleRejectRequest = async (roleRequest: RoleRequestItem) => {
+    const trimmedRejectionReason = rejectionReason.trim();
+    if (!trimmedRejectionReason) {
+      setRejectionError("Please tell the requester why this role request was rejected.");
+      return;
+    }
+
     const authSession = getStoredAuthSession();
     if (!authSession?.userId) {
       showNotification({
         variant: "error",
-        title: "Delete failed",
-        message: "You must be signed in as an admin to delete requests.",
+        title: "Rejection failed",
+        message: "You must be signed in as an admin to reject requests.",
       });
-      setRequestToDelete(null);
+      setRequestToReject(null);
       return;
     }
 
-    setDeletingRequestId(roleRequest.id);
+    setRejectingRequestId(roleRequest.id);
+    setRejectionError("");
 
     try {
-      const response = await fetch(
-        `${authApiBaseUrl}/api/role-requests/${roleRequest.id}`,
+      const response = await apiFetch(
+        `/api/role-requests/${roleRequest.id}/reject`,
         {
-          method: "DELETE",
+          method: "PATCH",
           headers: {
-            "X-Auth-User-Id": authSession.userId,
+            "Content-Type": "application/json",
           },
+          body: JSON.stringify({
+            rejectionReason: trimmedRejectionReason,
+          }),
         }
       );
 
       const rawResponse = await response.text();
       const payload = parseResponsePayload<
-        RoleRequestDeleteApiResponse | { message?: string }
+        RoleRequestMutationApiResponse | { message?: string }
       >(rawResponse);
 
       if (!response.ok) {
+        const message = getApiMessage(
+          payload,
+          "Unable to reject this role request right now."
+        );
+        setRejectionError(message);
         showNotification({
           variant: "error",
-          title: "Delete failed",
-          message: getApiMessage(
-            payload,
-            "Unable to delete this role request right now."
-          ),
+          title: "Rejection failed",
+          message,
         });
-        setDeletingRequestId(null);
+        setRejectingRequestId(null);
         return;
       }
 
+      if (!isRoleRequestMutationApiResponse(payload)) {
+        const message = "The server returned an invalid rejection response.";
+        setRejectionError(message);
+        showNotification({
+          variant: "error",
+          title: "Rejection failed",
+          message,
+        });
+        setRejectingRequestId(null);
+        return;
+      }
+
+      const updatedRequest = normalizeRoleRequest(payload.request);
       setRequests((currentRequests) =>
-        currentRequests.filter((currentRequest) => currentRequest.id !== roleRequest.id)
+        upsertRoleRequest(currentRequests, updatedRequest, sortAdminRoleRequests)
       );
-      setRequestToDelete(null);
+      setRequestToReject(null);
+      setRejectionReason("");
+      setRejectionError("");
       showNotification({
         variant: "success",
-        title: "Request deleted",
-        message: getApiMessage(payload, "Role request deleted successfully."),
+        title: "Request rejected",
+        message: getApiMessage(
+          payload,
+          `The request for ${formatRoleLabel(updatedRequest.requestedRole)} was rejected.`
+        ),
       });
     } catch {
       showNotification({
         variant: "error",
-        title: "Delete failed",
-        message: "Cannot reach the server to delete the role request.",
+        title: "Rejection failed",
+        message: "Cannot reach the server to reject the role request.",
       });
     } finally {
-      setDeletingRequestId(null);
+      setRejectingRequestId(null);
     }
   };
 
@@ -423,8 +569,10 @@ export default function AdminRoleRequestsTable({
                 !error &&
                 requests.map((roleRequest) => {
                   const isApproving = approvingRequestId === roleRequest.id;
-                  const isDeleting = deletingRequestId === roleRequest.id;
+                  const isRejecting = rejectingRequestId === roleRequest.id;
+                  const isPending = roleRequest.status === "PENDING";
                   const isApproved = roleRequest.status === "APPROVED";
+                  const isRejected = roleRequest.status === "REJECTED";
 
                   return (
                     <TableRow key={roleRequest.id}>
@@ -459,8 +607,20 @@ export default function AdminRoleRequestsTable({
                         </Badge>
                       </TableCell>
                       <TableCell className="px-5 py-4 text-start text-theme-sm text-gray-500 dark:text-gray-400">
-                        <div className="max-w-xl whitespace-pre-wrap">
-                          {roleRequest.description || "No description provided."}
+                        <div className="max-w-xl space-y-3">
+                          <div className="whitespace-pre-wrap">
+                            {roleRequest.description || "No description provided."}
+                          </div>
+                          {roleRequest.rejectionReason ? (
+                            <div className="rounded-lg border border-error-200 bg-error-50 px-3 py-3 text-xs text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300">
+                              <span className="font-semibold">
+                                Reason shared with requester:
+                              </span>{" "}
+                              <span className="whitespace-pre-wrap">
+                                {roleRequest.rejectionReason}
+                              </span>
+                            </div>
+                          ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="px-5 py-4 text-start text-theme-sm text-gray-500 dark:text-gray-400">
@@ -481,7 +641,7 @@ export default function AdminRoleRequestsTable({
                             size="sm"
                             variant={isApproved ? "outline" : "primary"}
                             onClick={() => handleOpenApproveModal(roleRequest)}
-                            disabled={isApproved || isApproving || isDeleting}
+                            disabled={!isPending || isApproving || isRejecting}
                             startIcon={
                               isApproving ? (
                                 <LoadingIndicator size="sm" tone="inverse" />
@@ -500,18 +660,22 @@ export default function AdminRoleRequestsTable({
                           <Button
                             size="sm"
                             variant="danger"
-                            onClick={() => handleOpenDeleteModal(roleRequest)}
-                            disabled={isApproving || isDeleting}
+                            onClick={() => handleOpenRejectModal(roleRequest)}
+                            disabled={!isPending || isApproving || isRejecting}
                             startIcon={
-                              isDeleting ? (
+                              isRejecting ? (
                                 <LoadingIndicator size="sm" tone="inverse" />
                               ) : (
-                                <TrashBinIcon className="h-4 w-4" />
+                                <CloseIcon className="h-4 w-4" />
                               )
                             }
                             className="whitespace-nowrap"
                           >
-                            {isDeleting ? "Deleting" : "Delete"}
+                            {isRejecting
+                              ? "Rejecting"
+                              : isRejected
+                              ? "Rejected"
+                              : "Reject"}
                           </Button>
                         </div>
                       </TableCell>
@@ -603,38 +767,55 @@ export default function AdminRoleRequestsTable({
         </div>
       </Modal>
       <Modal
-        isOpen={Boolean(requestToDelete)}
-        onClose={handleCloseDeleteModal}
+        isOpen={Boolean(requestToReject)}
+        onClose={handleCloseRejectModal}
         className="m-4 max-w-[520px]"
       >
         <div className="px-6 py-7 sm:px-8">
           <div className="mb-5">
             <h3 className="text-xl font-semibold text-gray-800 dark:text-white/90">
-              Delete Role Request
+              Reject Role Request
             </h3>
-            {requestToDelete ? (
+            {requestToReject ? (
               <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                Are you sure you want to delete{" "}
+                Send a short note explaining why{" "}
                 <span className="font-medium text-gray-700 dark:text-gray-300">
-                  {requestToDelete.requesterDisplayName}
+                  {requestToReject.requesterDisplayName}
                 </span>
                 {"'s"} request for{" "}
                 <span className="font-medium text-gray-700 dark:text-gray-300">
-                  {formatRoleLabel(requestToDelete.requestedRole)}
+                  {formatRoleLabel(requestToReject.requestedRole)}
                 </span>
-                ?
+                was rejected. This message will be shown to the requester.
               </p>
             ) : null}
           </div>
 
-         
+          <div>
+            <Label htmlFor="rejection-reason" className="mb-2">
+              Reason shown to requester
+            </Label>
+            <TextArea
+              rows={5}
+              value={rejectionReason}
+              onChange={setRejectionReason}
+              placeholder="Example: Please add a bit more detail about the work that requires this access."
+              error={Boolean(rejectionError)}
+            />
+          </div>
+
+          {rejectionError ? (
+            <div className="mt-5 rounded-lg border border-error-200 bg-error-50 px-4 py-3 text-sm text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-400">
+              {rejectionError}
+            </div>
+          ) : null}
 
           <div className="mt-6 flex items-center justify-end gap-3">
             <Button
               size="sm"
               variant="outline"
-              onClick={handleCloseDeleteModal}
-              disabled={Boolean(deletingRequestId)}
+              onClick={handleCloseRejectModal}
+              disabled={Boolean(rejectingRequestId)}
             >
               No, Leave It
             </Button>
@@ -642,20 +823,20 @@ export default function AdminRoleRequestsTable({
               size="sm"
               variant="danger"
               onClick={() =>
-                requestToDelete
-                  ? handleDeleteRequest(requestToDelete)
+                requestToReject
+                  ? handleRejectRequest(requestToReject)
                   : undefined
               }
-              disabled={!requestToDelete || Boolean(deletingRequestId)}
+              disabled={!requestToReject || Boolean(rejectingRequestId)}
               startIcon={
-                deletingRequestId ? (
+                rejectingRequestId ? (
                   <LoadingIndicator size="sm" tone="inverse" />
                 ) : (
-                  <TrashBinIcon className="h-4 w-4" />
+                  <CloseIcon className="h-4 w-4" />
                 )
               }
             >
-              {deletingRequestId ? "Deleting" : "Yes, Delete It"}
+              {rejectingRequestId ? "Rejecting" : "Send Rejection"}
             </Button>
           </div>
         </div>
