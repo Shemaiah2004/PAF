@@ -1,5 +1,5 @@
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8081/api";
+  import.meta.env.VITE_API_BASE_URL ?? "/api";
 export const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
 
 type ApiMethod = "GET" | "POST" | "PUT" | "DELETE";
@@ -9,19 +9,35 @@ interface ApiRequestOptions {
   body?: BodyInit | object;
 }
 
-const getAuthHeaders = () => {
-  const email =
-    localStorage.getItem("paf_auth_email") ?? import.meta.env.VITE_API_USERNAME;
-  const password =
-    localStorage.getItem("paf_auth_password") ??
-    import.meta.env.VITE_API_PASSWORD;
+export class ApiError extends Error {
+  status: number;
+  payload: unknown;
 
+  constructor(message: string, status: number, payload: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+const getAuthHeaders = () => {
   const headers = new Headers();
-  if (email && password) {
-    headers.set("Authorization", `Basic ${btoa(`${email}:${password}`)}`);
+  return headers;
+};
+
+const parseResponseBody = async (response: Response) => {
+  const rawBody = await response.text();
+
+  if (!rawBody) {
+    return null;
   }
 
-  return headers;
+  try {
+    return JSON.parse(rawBody) as unknown;
+  } catch {
+    return rawBody;
+  }
 };
 
 const request = async <T>(
@@ -42,19 +58,20 @@ const request = async <T>(
     method: options.method ?? "GET",
     headers,
     body,
+    credentials: "include",
   });
 
-  const data = (await response.json()) as T;
+  const data = (await parseResponseBody(response)) as T;
 
   if (!response.ok) {
     const message =
       typeof data === "object" &&
-      data !== null &&
-      "message" in data &&
-      typeof data.message === "string"
+        data !== null &&
+        "message" in data &&
+        typeof data.message === "string"
         ? data.message
         : "Request failed";
-    throw new Error(message);
+    throw new ApiError(message, response.status, data);
   }
 
   return { data };

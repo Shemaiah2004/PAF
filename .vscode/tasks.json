@@ -1,0 +1,60 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Start Server (PAF)",
+            "type": "shell",
+            "command": "Get-NetTCPConnection -LocalPort 8081 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; $env:JAVA_HOME = 'C:\\Users\\Shemaiah David\\AppData\\Local\\Programs\\Eclipse Adoptium\\jdk-21.0.10.7-hotspot'; .\\mvnw.cmd spring-boot:run",
+            "options": {
+                "cwd": "${workspaceFolder}/server",
+                "shell": {
+                    "executable": "powershell.exe",
+                    "args": [
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-Command"
+                    ]
+                }
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "dedicated",
+                "label": "Spring Boot Server"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Start Client (PAF)",
+            "type": "shell",
+            "command": "npm run dev",
+            "options": {
+                "cwd": "${workspaceFolder}/client"
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "dedicated",
+                "label": "React Client"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Start All (Server + Client)",
+            "dependsOn": [
+                "Start Server (PAF)",
+                "Start Client (PAF)"
+            ],
+            "dependsOrder": "parallel",
+            "group": "build",
+            "problemMatcher": []
+        }
+    ]
+}

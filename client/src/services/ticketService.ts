@@ -1,20 +1,24 @@
-import api from "./api";
+import api, { ApiError } from "./api";
 import { mockTicketService } from "./mockTicketService";
 import type {
   ApiResponse,
+  CreateCommentPayload,
   CreateTicketPayload,
   CurrentUser,
   Notification,
   Ticket,
   TicketComment,
+  TicketAnalytics,
+  TicketSummary,
   UpdateStatusPayload,
+  UpdateTicketPayload,
   UserSummary,
 } from "../types/ticket";
 
 const DEMO_MODE_KEY = "paf_demo_mode";
 
 const shouldUseMockFallback = (error: unknown) => {
-  return error instanceof TypeError || error instanceof Error;
+  return error instanceof TypeError;
 };
 
 const withFallback = async <T>(request: () => Promise<T>, fallback: () => Promise<T>) => {
@@ -29,6 +33,29 @@ const withFallback = async <T>(request: () => Promise<T>, fallback: () => Promis
     localStorage.setItem(DEMO_MODE_KEY, "true");
     return fallback();
   }
+};
+
+export const isTicketApiOfflineError = (error: unknown) =>
+  error instanceof TypeError;
+
+export const getTicketApiErrorMessage = (error: unknown) => {
+  if (error instanceof ApiError) {
+    if (error.status === 401) {
+      return "Your session has expired. Please sign in again.";
+    }
+
+    if (error.status === 403) {
+      return "You do not have permission to access maintenance tickets.";
+    }
+
+    return error.message;
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  return "Unable to load tickets. Check your server connection and try again.";
 };
 
 export const isDemoModeEnabled = () =>
@@ -75,9 +102,15 @@ export const ticketService = {
             [
               JSON.stringify({
                 title: payload.title,
+                type: payload.type,
                 category: payload.category,
+                subcategory: payload.subcategory,
                 description: payload.description,
                 priority: payload.priority,
+                severity: payload.severity,
+                location: payload.location,
+                building: payload.building,
+                department: payload.department,
                 preferredContactDetails: payload.preferredContactDetails,
               }),
             ],
@@ -109,6 +142,22 @@ export const ticketService = {
     );
   },
 
+  async updateTicket(ticketId: number, payload: UpdateTicketPayload) {
+    return withFallback(
+      async () => {
+        const response = await api.put<ApiResponse<Ticket>>(`/tickets/${ticketId}`, payload);
+        return response.data.data;
+      },
+      async () => {
+        const existing = await mockTicketService.getTicket(String(ticketId));
+        return {
+          ...existing,
+          ...payload,
+        };
+      }
+    );
+  },
+
   async assignTechnician(ticketId: number, technicianId: number) {
     return withFallback(
       async () => {
@@ -122,16 +171,19 @@ export const ticketService = {
     );
   },
 
-  async addComment(ticketId: number, message: string) {
+  async addComment(ticketId: number, payload: string | CreateCommentPayload) {
+    const commentPayload =
+      typeof payload === "string" ? { message: payload } : payload;
+
     return withFallback(
       async () => {
         const response = await api.post<ApiResponse<TicketComment>>(
           `/tickets/${ticketId}/comments`,
-          { message }
+          commentPayload
         );
         return response.data.data;
       },
-      () => mockTicketService.addComment(ticketId, message)
+      () => mockTicketService.addComment(ticketId, commentPayload.message)
     );
   },
 
@@ -178,6 +230,56 @@ export const ticketService = {
         return response.data.data;
       },
       () => mockTicketService.getNotifications()
+    );
+  },
+
+  async getSummary() {
+    return withFallback(
+      async () => {
+        const response = await api.get<ApiResponse<TicketSummary>>("/tickets/summary");
+        return response.data.data;
+      },
+      async () => {
+        const tickets = await mockTicketService.getTickets();
+        return {
+          total: tickets.length,
+          open: tickets.filter((ticket) => ticket.status === "OPEN").length,
+          assigned: 0,
+          inProgress: tickets.filter((ticket) => ticket.status === "IN_PROGRESS").length,
+          overdue: 0,
+          resolved: tickets.filter((ticket) => ticket.status === "RESOLVED").length,
+          closed: tickets.filter((ticket) => ticket.status === "CLOSED").length,
+        };
+      }
+    );
+  },
+
+  async getAnalytics() {
+    return withFallback(
+      async () => {
+        const response = await api.get<ApiResponse<TicketAnalytics>>("/tickets/analytics");
+        return response.data.data;
+      },
+      async () => ({
+        monthlyCounts: {},
+        typeBreakdown: {},
+        categoryBreakdown: {},
+        priorityBreakdown: {},
+        statusBreakdown: {},
+        averageResolutionHours: 0,
+        overdueCount: 0,
+        technicianWorkload: {},
+      })
+    );
+  },
+
+  async archiveTicket(ticketId: number) {
+    return withFallback(
+      async () => {
+        const response = await api.delete<ApiResponse<Ticket>>(`/tickets/${ticketId}`);
+        return response.data.data;
+      },
+      () => mockTicketService.getTicket(String(ticketId))
     );
   },
 };

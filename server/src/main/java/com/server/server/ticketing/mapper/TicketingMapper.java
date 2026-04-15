@@ -2,10 +2,12 @@ package com.server.server.ticketing.mapper;
 
 import com.server.server.ticketing.dto.response.CommentResponse;
 import com.server.server.ticketing.dto.response.NotificationResponse;
+import com.server.server.ticketing.dto.response.TicketActivityResponse;
 import com.server.server.ticketing.dto.response.TicketResponse;
 import com.server.server.ticketing.dto.response.UserProfileResponse;
 import com.server.server.ticketing.dto.response.UserSummaryResponse;
 import com.server.server.ticketing.entity.Notification;
+import com.server.server.ticketing.entity.TicketActivity;
 import com.server.server.ticketing.entity.Ticket;
 import com.server.server.ticketing.entity.TicketComment;
 import com.server.server.ticketing.entity.User;
@@ -17,23 +19,36 @@ public final class TicketingMapper {
     private TicketingMapper() {
     }
 
-    public static TicketResponse toTicketResponse(Ticket ticket, List<CommentResponse> comments) {
+    public static TicketResponse toTicketResponse(
+            Ticket ticket,
+            List<CommentResponse> comments,
+            List<TicketActivityResponse> activity) {
         return new TicketResponse(
                 ticket.getId(),
+                ticket.getTicketNumber(),
                 ticket.getTitle(),
+                ticket.getType(),
                 ticket.getCategory(),
+                ticket.getSubcategory(),
                 ticket.getDescription(),
                 ticket.getPriority(),
+                ticket.getSeverity(),
                 ticket.getStatus(),
                 ticket.getPreferredContactDetails(),
+                ticket.getLocation(),
+                ticket.getBuilding(),
+                ticket.getDepartment(),
                 ticket.getResolutionNotes(),
                 ticket.getRejectionReason(),
                 ticket.getCreatedAt(),
                 ticket.getUpdatedAt(),
+                ticket.getDueAt(),
+                ticket.isArchived(),
                 toUserSummary(ticket.getCreatedBy()),
                 ticket.getAssignedTechnician() == null ? null : toUserSummary(ticket.getAssignedTechnician()),
                 ticket.getAttachments(),
-                comments
+                comments,
+                activity
         );
     }
 
@@ -43,7 +58,23 @@ public final class TicketingMapper {
                 comment.getMessage(),
                 toUserSummary(comment.getAuthor()),
                 comment.getTimestamp(),
+                comment.isInternalNote(),
                 editable
+        );
+    }
+
+    public static TicketActivityResponse toActivityResponse(TicketActivity activity) {
+        return new TicketActivityResponse(
+                activity.getId(),
+                activity.getAction(),
+                activity.getMessage(),
+                activity.getFromStatus(),
+                activity.getToStatus(),
+                activity.getPreviousAssigneeName(),
+                activity.getNewAssigneeName(),
+                activity.isInternalOnly(),
+                toUserSummary(activity.getActor()),
+                activity.getCreatedAt()
         );
     }
 

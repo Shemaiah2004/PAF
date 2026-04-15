@@ -6,8 +6,11 @@ const statusColors: Record<
   "primary" | "warning" | "success" | "dark" | "error"
 > = {
   OPEN: "primary",
+  ASSIGNED: "primary",
   IN_PROGRESS: "warning",
+  ON_HOLD: "warning",
   RESOLVED: "success",
+  REOPENED: "warning",
   CLOSED: "dark",
   REJECTED: "error",
 };

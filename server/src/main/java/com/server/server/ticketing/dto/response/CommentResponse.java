@@ -7,6 +7,7 @@ public record CommentResponse(
         String message,
         UserSummaryResponse author,
         LocalDateTime timestamp,
+        boolean internalNote,
         boolean editable
 ) {
 }

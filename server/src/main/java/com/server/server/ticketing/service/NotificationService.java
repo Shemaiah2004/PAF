@@ -27,13 +27,46 @@ public class NotificationService {
     }
 
     @Transactional
+    public void notifyTicketCreated(Ticket ticket, String message, List<User> recipients) {
+        createNotifications(ticket, NotificationType.TICKET_CREATED, "New ticket created", message, recipients, null);
+    }
+
+    @Transactional
+    public void notifyTicketAssigned(Ticket ticket, String message, User actor) {
+        createNotifications(ticket, NotificationType.TICKET_ASSIGNED, "Ticket assigned", message, List.of(ticket.getAssignedTechnician()), actor);
+    }
+
+    @Transactional
     public void notifyStatusChange(Ticket ticket, String message, User actor) {
-        createNotifications(ticket, NotificationType.STATUS_CHANGED, "Ticket status updated", message, actor);
+        NotificationType type = NotificationType.STATUS_CHANGED;
+        String title = "Ticket status updated";
+
+        if (ticket.getStatus() != null) {
+            switch (ticket.getStatus()) {
+                case RESOLVED -> {
+                    type = NotificationType.TICKET_RESOLVED;
+                    title = "Ticket resolved";
+                }
+                case CLOSED -> {
+                    type = NotificationType.TICKET_CLOSED;
+                    title = "Ticket closed";
+                }
+                default -> {
+                }
+            }
+        }
+
+        createNotifications(ticket, type, title, message, getDefaultRecipients(ticket), actor);
     }
 
     @Transactional
     public void notifyCommentAdded(Ticket ticket, String message, User actor) {
-        createNotifications(ticket, NotificationType.COMMENT_ADDED, "New ticket comment", message, actor);
+        createNotifications(ticket, NotificationType.COMMENT_ADDED, "New ticket comment", message, getDefaultRecipients(ticket), actor);
+    }
+
+    @Transactional
+    public void notifyOverdue(Ticket ticket, String message, List<User> recipients) {
+        createNotifications(ticket, NotificationType.OVERDUE_ALERT, "Ticket overdue", message, recipients, null);
     }
 
     @Transactional(readOnly = true)
@@ -44,19 +77,24 @@ public class NotificationService {
                 .toList();
     }
 
-    private void createNotifications(Ticket ticket,
-                                     NotificationType type,
-                                     String title,
-                                     String message,
-                                     User actor) {
+    private List<User> getDefaultRecipients(Ticket ticket) {
         Set<User> recipients = new LinkedHashSet<>();
         recipients.add(ticket.getCreatedBy());
         if (ticket.getAssignedTechnician() != null) {
             recipients.add(ticket.getAssignedTechnician());
         }
+        return recipients.stream().toList();
+    }
 
+    private void createNotifications(Ticket ticket,
+                                     NotificationType type,
+                                     String title,
+                                     String message,
+                                     List<User> recipients,
+                                     User actor) {
         List<Notification> notifications = recipients.stream()
-                .filter(recipient -> !recipient.getId().equals(actor.getId()))
+                .filter(recipient -> recipient != null)
+                .filter(recipient -> actor == null || !recipient.getId().equals(actor.getId()))
                 .map(recipient -> {
                     Notification notification = new Notification();
                     notification.setRecipient(recipient);
@@ -69,6 +107,8 @@ public class NotificationService {
                 })
                 .toList();
 
-        notificationRepository.saveAll(notifications);
+        if (!notifications.isEmpty()) {
+            notificationRepository.saveAll(notifications);
+        }
     }
 }

@@ -18,7 +18,7 @@ export type AuthSession = {
 };
 
 export const authApiBaseUrl = (
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8081"
+  import.meta.env.VITE_API_BASE_URL ?? ""
 ).replace(/\/$/, "");
 
 export const AUTH_CHANGE_EVENT = "paf-auth-change";
@@ -31,15 +31,15 @@ const isNullableString = (value: unknown) =>
 const isAuthSession = (value: unknown): value is AuthSession => {
   return Boolean(
     value &&
-      typeof value === "object" &&
-      "userId" in value &&
-      typeof value.userId === "string" &&
-      "email" in value &&
-      typeof value.email === "string" &&
-      (!("displayName" in value) || isNullableString(value.displayName)) &&
-      (!("photoUrl" in value) || isNullableString(value.photoUrl)) &&
-      (!("provider" in value) || isNullableString(value.provider)) &&
-      (!("role" in value) || isNullableString(value.role))
+    typeof value === "object" &&
+    "userId" in value &&
+    typeof value.userId === "string" &&
+    "email" in value &&
+    typeof value.email === "string" &&
+    (!("displayName" in value) || isNullableString(value.displayName)) &&
+    (!("photoUrl" in value) || isNullableString(value.photoUrl)) &&
+    (!("provider" in value) || isNullableString(value.provider)) &&
+    (!("role" in value) || isNullableString(value.role))
   );
 };
 

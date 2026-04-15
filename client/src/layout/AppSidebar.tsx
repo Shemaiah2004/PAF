@@ -14,6 +14,7 @@ import {
   PieChartIcon,
   PlugInIcon,
   UserCircleIcon,
+  TableIcon,
 } from "../icons";
 import { useSidebar } from "../context/SidebarContext";
 import { AUTH_CHANGE_EVENT, getStoredAuthSession, isAdminRole } from "../lib/auth";

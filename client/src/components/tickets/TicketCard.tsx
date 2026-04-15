@@ -11,13 +11,14 @@ const priorityStyles = {
   LOW: "text-gray-500",
   MEDIUM: "text-warning-500",
   HIGH: "text-error-500",
+  CRITICAL: "text-error-600",
 };
 
 export default function TicketCard({ ticket }: TicketCardProps) {
   return (
     <ComponentCard
-      title={ticket.title}
-      desc={`${ticket.category} • Created ${new Date(
+      title={`${ticket.ticketNumber} - ${ticket.title}`}
+      desc={`${ticket.type} - ${ticket.category}${ticket.subcategory ? ` / ${ticket.subcategory}` : ""} - Created ${new Date(
         ticket.createdAt
       ).toLocaleString()}`}
       className="h-full"
@@ -34,8 +35,8 @@ export default function TicketCard({ ticket }: TicketCardProps) {
           <p className="text-xs uppercase tracking-wide text-gray-400">
             Priority
           </p>
-          <p className={`mt-1 text-sm font-semibold ${priorityStyles[ticket.priority]}`}>
-            {ticket.priority}
+          <p className={`mt-1 text-sm font-semibold ${priorityStyles[ticket.severity]}`}>
+            {ticket.priority} / {ticket.severity}
           </p>
         </div>
         <div className="rounded-xl bg-gray-50 p-4 dark:bg-gray-900/60">
@@ -44,6 +45,22 @@ export default function TicketCard({ ticket }: TicketCardProps) {
           </p>
           <p className="mt-1 text-sm font-semibold text-gray-700 dark:text-white/90">
             {ticket.assignedTechnician?.fullName ?? "Unassigned"}
+          </p>
+        </div>
+        <div className="rounded-xl bg-gray-50 p-4 dark:bg-gray-900/60">
+          <p className="text-xs uppercase tracking-wide text-gray-400">
+            Location
+          </p>
+          <p className="mt-1 text-sm font-semibold text-gray-700 dark:text-white/90">
+            {ticket.location ?? ticket.building ?? ticket.department ?? "Not specified"}
+          </p>
+        </div>
+        <div className="rounded-xl bg-gray-50 p-4 dark:bg-gray-900/60">
+          <p className="text-xs uppercase tracking-wide text-gray-400">
+            Due
+          </p>
+          <p className="mt-1 text-sm font-semibold text-gray-700 dark:text-white/90">
+            {ticket.dueAt ? new Date(ticket.dueAt).toLocaleString() : "No SLA"}
           </p>
         </div>
       </div>

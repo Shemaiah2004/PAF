@@ -9,11 +9,21 @@ public class CreateCommentRequest {
     @Size(max = 2000, message = "Comment must not exceed 2000 characters")
     private String message;
 
+    private boolean internalNote;
+
     public String getMessage() {
         return message;
     }
 
     public void setMessage(String message) {
         this.message = message;
+    }
+
+    public boolean isInternalNote() {
+        return internalNote;
+    }
+
+    public void setInternalNote(boolean internalNote) {
+        this.internalNote = internalNote;
     }
 }

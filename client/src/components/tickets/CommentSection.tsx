@@ -1,12 +1,12 @@
 import { useState } from "react";
 import Button from "../ui/button/Button";
 import TextArea from "../form/input/TextArea";
-import type { TicketComment, UserSummary } from "../../types/ticket";
+import type { CreateCommentPayload, TicketComment, UserSummary } from "../../types/ticket";
 
 interface CommentSectionProps {
   comments: TicketComment[];
   currentUser: UserSummary;
-  onAddComment: (message: string) => Promise<void>;
+  onAddComment: (payload: CreateCommentPayload) => Promise<void>;
   onUpdateComment: (commentId: number, message: string) => Promise<void>;
   onDeleteComment: (commentId: number) => Promise<void>;
 }
@@ -19,6 +19,7 @@ export default function CommentSection({
   onDeleteComment,
 }: CommentSectionProps) {
   const [newMessage, setNewMessage] = useState("");
+  const [internalNote, setInternalNote] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingMessage, setEditingMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -29,8 +30,9 @@ export default function CommentSection({
     }
     setBusy(true);
     try {
-      await onAddComment(newMessage.trim());
+      await onAddComment({ message: newMessage.trim(), internalNote });
       setNewMessage("");
+      setInternalNote(false);
     } finally {
       setBusy(false);
     }
@@ -62,9 +64,19 @@ export default function CommentSection({
           onChange={setNewMessage}
           placeholder="Share additional context, progress notes, or questions"
         />
+        {currentUser.role !== "USER" && (
+          <label className="mt-3 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={internalNote}
+              onChange={(event) => setInternalNote(event.target.checked)}
+            />
+            Save as internal note
+          </label>
+        )}
         <div className="mt-4 flex justify-end">
           <Button onClick={submitComment} disabled={busy || !newMessage.trim()}>
-            Post comment
+            {internalNote ? "Post internal note" : "Post comment"}
           </Button>
         </div>
       </div>
@@ -83,7 +95,7 @@ export default function CommentSection({
                     {comment.author.fullName}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {comment.author.role} • {new Date(comment.timestamp).toLocaleString()}
+                    {comment.author.role} - {new Date(comment.timestamp).toLocaleString()}
                   </p>
                 </div>
                 {comment.editable && (
@@ -129,9 +141,16 @@ export default function CommentSection({
                   </div>
                 </div>
               ) : (
-                <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">
-                  {comment.message}
-                </p>
+                <div className="mt-3 space-y-2">
+                  {comment.internalNote && (
+                    <span className="inline-flex rounded-full bg-warning-50 px-2.5 py-1 text-xs font-medium text-warning-700">
+                      Internal note
+                    </span>
+                  )}
+                  <p className="text-sm leading-6 text-gray-600 dark:text-gray-300">
+                    {comment.message}
+                  </p>
+                </div>
               )}
             </div>
           );

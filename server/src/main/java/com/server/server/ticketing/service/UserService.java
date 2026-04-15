@@ -36,6 +36,11 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
+    public List<User> getAdmins() {
+        return userRepository.findAllByRole(Role.ADMIN);
+    }
+
+    @Transactional(readOnly = true)
     public User getTechnicianById(Long technicianId) {
         User technician = userRepository.findById(technicianId)
                 .orElseThrow(() -> new IllegalArgumentException("Technician was not found"));

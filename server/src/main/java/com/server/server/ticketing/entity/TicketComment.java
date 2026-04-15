@@ -25,6 +25,9 @@ public class TicketComment {
     private String message;
 
     @Column(nullable = false)
+    private boolean internalNote;
+
+    @Column(nullable = false)
     private LocalDateTime timestamp;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -58,6 +61,14 @@ public class TicketComment {
 
     public void setTimestamp(LocalDateTime timestamp) {
         this.timestamp = timestamp;
+    }
+
+    public boolean isInternalNote() {
+        return internalNote;
+    }
+
+    public void setInternalNote(boolean internalNote) {
+        this.internalNote = internalNote;
     }
 
     public Ticket getTicket() {

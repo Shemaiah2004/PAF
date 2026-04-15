@@ -11,4 +11,6 @@ public interface TicketingUserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);
 
     List<User> findByRoleOrderByFullNameAsc(Role role);
+
+    List<User> findAllByRole(Role role);
 }

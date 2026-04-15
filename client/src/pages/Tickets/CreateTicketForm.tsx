@@ -8,14 +8,20 @@ import Input from "../../components/form/input/InputField";
 import TextArea from "../../components/form/input/TextArea";
 import Button from "../../components/ui/button/Button";
 import FileInput from "../../components/form/input/FileInput";
-import type { TicketPriority } from "../../types/ticket";
-import { ticketService } from "../../services/ticketService";
+import type { TicketPriority, TicketSeverity, TicketType } from "../../types/ticket";
+import { getTicketApiErrorMessage, ticketService } from "../../services/ticketService";
 
 const initialState = {
   title: "",
+  type: "MAINTENANCE" as TicketType,
   category: "",
+  subcategory: "",
   description: "",
   priority: "MEDIUM" as TicketPriority,
+  severity: "MEDIUM" as TicketSeverity,
+  location: "",
+  building: "",
+  department: "",
   preferredContactDetails: "",
 };
 
@@ -47,8 +53,8 @@ export default function CreateTicketForm() {
       setError("");
       const ticket = await ticketService.createTicket({ ...form, files });
       navigate(`/tickets/${ticket.id}`);
-    } catch {
-      setError("Ticket creation failed. Check the API connection and try again.");
+    } catch (submitError) {
+      setError(getTicketApiErrorMessage(submitError));
     } finally {
       setSubmitting(false);
     }
@@ -56,12 +62,12 @@ export default function CreateTicketForm() {
 
   return (
     <div>
-      <PageMeta title="Create Ticket" description="Create a maintenance incident ticket" />
+      <PageMeta title="Create Ticket" description="Create a maintenance or incident ticket" />
       <PageBreadcrumb pageTitle="Create Ticket" />
 
       <ComponentCard
         title="Report a maintenance issue"
-        desc="Capture enough detail for the admin team and assigned technician to act quickly."
+        desc="Capture classification, impact, and location details so the right team can act quickly."
       >
         <div className="grid gap-6 lg:grid-cols-2">
           <div>
@@ -76,6 +82,26 @@ export default function CreateTicketForm() {
             />
           </div>
           <div>
+            <Label htmlFor="type">Ticket Type</Label>
+            <select
+              id="type"
+              value={form.type}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  type: event.target.value as TicketType,
+                }))
+              }
+              className="h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 focus:border-brand-300 focus:outline-none focus:ring focus:ring-brand-500/20 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90"
+            >
+              <option value="MAINTENANCE">Maintenance</option>
+              <option value="INCIDENT">Incident</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div>
             <Label htmlFor="category">Category</Label>
             <Input
               id="category"
@@ -86,9 +112,31 @@ export default function CreateTicketForm() {
               placeholder="Plumbing, HVAC, Electrical..."
             />
           </div>
+          <div>
+            <Label htmlFor="subcategory">Subcategory</Label>
+            <Input
+              id="subcategory"
+              value={form.subcategory}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, subcategory: event.target.value }))
+              }
+              placeholder="Leak, outage, cooling..."
+            />
+          </div>
+          <div>
+            <Label htmlFor="location">Location</Label>
+            <Input
+              id="location"
+              value={form.location}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, location: event.target.value }))
+              }
+              placeholder="Room, wing, floor, or landmark"
+            />
+          </div>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-4">
           <div>
             <Label htmlFor="priority">Priority</Label>
             <select
@@ -107,6 +155,50 @@ export default function CreateTicketForm() {
               <option value="HIGH">High</option>
             </select>
           </div>
+          <div>
+            <Label htmlFor="severity">Severity</Label>
+            <select
+              id="severity"
+              value={form.severity}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  severity: event.target.value as TicketSeverity,
+                }))
+              }
+              className="h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 text-sm text-gray-800 focus:border-brand-300 focus:outline-none focus:ring focus:ring-brand-500/20 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90"
+            >
+              <option value="LOW">Low</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="HIGH">High</option>
+              <option value="CRITICAL">Critical</option>
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="building">Building</Label>
+            <Input
+              id="building"
+              value={form.building}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, building: event.target.value }))
+              }
+              placeholder="Admin Block"
+            />
+          </div>
+          <div>
+            <Label htmlFor="department">Department</Label>
+            <Input
+              id="department"
+              value={form.department}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, department: event.target.value }))
+              }
+              placeholder="Operations"
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
           <div>
             <Label htmlFor="contact">Preferred Contact Details</Label>
             <Input
