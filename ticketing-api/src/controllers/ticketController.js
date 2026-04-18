@@ -3,6 +3,7 @@ import { User } from "../models/User.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { createHttpError } from "../utils/httpError.js";
 import { buildTicketId } from "../utils/generateTicketId.js";
+import { serializeTicket } from "../utils/serializeTicket.js";
 
 const validPriorities = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 
@@ -58,34 +59,6 @@ function canSeeTicket(user, ticket) {
   return ticket.reporter.userId.toString() === user._id.toString();
 }
 
-function serializeTicket(ticket) {
-  return {
-    id: ticket._id,
-    ticketId: ticket.ticketId,
-    title: ticket.title,
-    description: ticket.description,
-    type: ticket.type,
-    priority: ticket.priority,
-    category: ticket.category,
-    status: ticket.status,
-    location: ticket.location,
-    reporter: ticket.reporter,
-    assignedTechnician: ticket.assignedTechnician?.userId
-      ? ticket.assignedTechnician
-      : null,
-    slaHours: ticket.slaHours,
-    dueAt: ticket.dueAt,
-    overdue: ticket.overdue,
-    resolvedAt: ticket.resolvedAt,
-    closedAt: ticket.closedAt,
-    attachments: ticket.attachments,
-    comments: ticket.comments,
-    activity: ticket.activity,
-    createdAt: ticket.createdAt,
-    updatedAt: ticket.updatedAt,
-  };
-}
-
 function buildListQuery(user, filters) {
   const query = {};
 
@@ -129,7 +102,7 @@ export const getTicketMeta = asyncHandler(async (_req, res) => {
     categories: defaultCategories,
     statuses: ["OPEN", "IN_PROGRESS", "ON_HOLD", "RESOLVED", "CLOSED", "CANCELLED"],
     technicians: technicians.map((user) => ({
-      id: user._id,
+      id: user._id.toString(),
       fullName: user.fullName,
       email: user.email,
       role: user.role,
@@ -225,6 +198,12 @@ export const createTicket = asyncHandler(async (req, res) => {
         },
       },
     ],
+  });
+
+  console.info("[ticketing-api] Ticket created", {
+    ticketId: ticket.ticketId,
+    reporterEmail: ticket.reporter.email,
+    mongoId: ticket._id.toString(),
   });
 
   res.status(201).json(serializeTicket(ticket));

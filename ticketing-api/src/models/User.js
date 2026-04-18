@@ -14,6 +14,16 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
+    externalAuthId: {
+      type: String,
+      trim: true,
+      index: true,
+    },
+    authProvider: {
+      type: String,
+      trim: true,
+      default: "LOCAL",
+    },
     passwordHash: {
       type: String,
       required: true,

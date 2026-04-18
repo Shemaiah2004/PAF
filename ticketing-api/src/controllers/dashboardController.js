@@ -1,5 +1,6 @@
 import { Ticket } from "../models/Ticket.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { serializeTicket } from "../utils/serializeTicket.js";
 
 const statusOrder = ["OPEN", "IN_PROGRESS", "ON_HOLD", "RESOLVED", "CLOSED", "CANCELLED"];
 const priorityOrder = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
@@ -109,6 +110,6 @@ export const getDashboardSummary = asyncHandler(async (req, res) => {
         created: monthlyLookup.get(item.key) ?? 0,
       })),
     },
-    recentTickets,
+    recentTickets: recentTickets.map(serializeTicket),
   });
 });
