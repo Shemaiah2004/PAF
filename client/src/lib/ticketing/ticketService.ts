@@ -1,4 +1,12 @@
+<<<<<<< HEAD
 import { authApiBaseUrl, getStoredAuthSession, parseResponsePayload } from "../auth";
+=======
+import {
+  getStoredAuthSession,
+  getUserDisplayName,
+  parseResponsePayload,
+} from "../auth";
+>>>>>>> 801072aedc5ddc9c1baaf91b125f21231819d044
 import {
   applyTicketFilters,
   buildDashboardSummary,
@@ -31,12 +39,22 @@ import type {
 
 const STORAGE_KEY = "paf.ticketing.mock-db.v1";
 const TICKET_DATA_CHANGE_EVENT = "paf.ticketing.data-changed";
+<<<<<<< HEAD
 const API_ENABLED = import.meta.env.VITE_TICKETING_ENABLE_API !== "false";
 const API_BASE_URL = (import.meta.env.VITE_TICKETING_API_BASE_URL ?? authApiBaseUrl).replace(
   /\/$/,
   ""
 );
 const USE_MOCK_DATA = !API_ENABLED;
+=======
+const API_ENABLED = (import.meta.env.VITE_TICKETING_ENABLE_API ?? "true") !== "false";
+const MOCK_FALLBACK_ENABLED =
+  import.meta.env.VITE_TICKETING_ENABLE_MOCK_FALLBACK === "true";
+const API_BASE_URL = (
+  import.meta.env.VITE_TICKETING_API_BASE_URL ?? "http://localhost:4000"
+).replace(/\/$/, "");
+
+>>>>>>> 801072aedc5ddc9c1baaf91b125f21231819d044
 function getTicketingApiToken() {
   if (typeof window === "undefined") {
     return import.meta.env.VITE_TICKETING_API_TOKEN ?? null;
@@ -61,6 +79,25 @@ function getCurrentRole(role?: string | null): TicketRole {
   return "USER";
 }
 
+function buildSessionHeaders(headers: Headers) {
+  const session = getStoredAuthSession();
+  if (!session) {
+    return;
+  }
+
+  headers.set("X-Auth-User-Id", session.userId);
+  headers.set("X-Auth-User-Email", session.email);
+  headers.set(
+    "X-Auth-User-Name",
+    session.displayName?.trim() || getUserDisplayName(session.email)
+  );
+  headers.set("X-Auth-User-Role", getCurrentRole(session.role));
+
+  if (session.provider?.trim()) {
+    headers.set("X-Auth-User-Provider", session.provider.trim());
+  }
+}
+
 function getCurrentTicketUser(db: TicketingMockDatabase): TicketUser {
   const session = getStoredAuthSession();
   if (!session) {
@@ -79,7 +116,7 @@ function getCurrentTicketUser(db: TicketingMockDatabase): TicketUser {
 
   return {
     id: session.userId,
-    fullName: session.displayName ?? session.email.split("@")[0],
+    fullName: session.displayName ?? getUserDisplayName(session.email),
     email: session.email,
     role: mappedRole,
   };
@@ -168,11 +205,79 @@ function assertWorkflowPermission(role?: string | null) {
   }
 }
 
+function normalizeTicketUser(
+  user:
+    | (Partial<TicketUser> & {
+        id?: string;
+        userId?: string;
+      })
+    | null
+    | undefined
+): TicketUser {
+  return {
+    id:
+      typeof user?.id === "string"
+        ? user.id
+        : typeof user?.userId === "string"
+          ? user.userId
+          : "",
+    fullName: user?.fullName ?? "Unknown User",
+    email: user?.email ?? "",
+    role: getCurrentRole(user?.role),
+    department: user?.department,
+    skills: Array.isArray(user?.skills) ? user.skills : [],
+  };
+}
+
+function normalizeTicketRecord(ticket: TicketRecord): TicketRecord {
+  return {
+    ...ticket,
+    category: normalizeTicketCategory(ticket.category),
+    reporter: normalizeTicketUser(ticket.reporter),
+    assignedTechnician: ticket.assignedTechnician
+      ? normalizeTicketUser(ticket.assignedTechnician)
+      : null,
+    attachments: (ticket.attachments ?? []).map((attachment) => ({
+      ...attachment,
+      id: attachment.id ?? attachment.fileName,
+      uploadedBy: normalizeTicketUser(attachment.uploadedBy),
+    })),
+    comments: (ticket.comments ?? []).map((comment) => ({
+      ...comment,
+      id: comment.id,
+      author: normalizeTicketUser(comment.author),
+    })),
+    activity: (ticket.activity ?? []).map((item) => ({
+      ...item,
+      id: item.id,
+      actor: normalizeTicketUser(item.actor),
+    })),
+  };
+}
+
+async function withOptionalMockFallback<T>(
+  apiRequest: () => Promise<T>,
+  fallbackRequest: () => T | Promise<T>
+) {
+  try {
+    return await apiRequest();
+  } catch (error) {
+    if (!MOCK_FALLBACK_ENABLED) {
+      throw error;
+    }
+
+    return fallbackRequest();
+  }
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers ?? {});
   if (!headers.has("Content-Type") && !(init?.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
+
+  buildSessionHeaders(headers);
+
   const apiToken = getTicketingApiToken();
   if (apiToken) {
     headers.set("Authorization", `Bearer ${apiToken}`);
@@ -194,6 +299,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(message);
   }
 
+<<<<<<< HEAD
   return (await response.json()) as T;
 }
 
@@ -228,8 +334,26 @@ export async function fetchTickets(filters: TicketFilters = {}): Promise<TicketL
       items: response.items,
       total: response.pagination?.total ?? response.items.length,
     };
+=======
+  if (response.status === 204) {
+    return undefined as T;
   }
 
+  const rawResponse = await response.text();
+  if (!rawResponse) {
+    return undefined as T;
+>>>>>>> 801072aedc5ddc9c1baaf91b125f21231819d044
+  }
+
+  const payload = parseResponsePayload<T>(rawResponse);
+  if (payload === null) {
+    throw new Error("Ticketing API returned an invalid JSON payload.");
+  }
+
+  return payload;
+}
+
+function fetchTicketsFromMock(filters: TicketFilters = {}): TicketListResult {
   const db = readMockDb();
   const items = applyTicketFilters(accessScopeTickets(db), filters).sort(
     (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)
@@ -241,11 +365,15 @@ export async function fetchTickets(filters: TicketFilters = {}): Promise<TicketL
   };
 }
 
+<<<<<<< HEAD
 export async function fetchTicketById(ticketId: string): Promise<TicketRecord> {
   if (!USE_MOCK_DATA) {
     return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}`);
   }
 
+=======
+function fetchTicketByIdFromMock(ticketId: string): TicketRecord {
+>>>>>>> 801072aedc5ddc9c1baaf91b125f21231819d044
   const db = readMockDb();
   const ticket = accessScopeTickets(db).find((item) => item.id === ticketId);
 
@@ -256,6 +384,7 @@ export async function fetchTicketById(ticketId: string): Promise<TicketRecord> {
   return ticket;
 }
 
+<<<<<<< HEAD
 export async function createTicket(input: CreateTicketInput): Promise<TicketRecord> {
   if (!USE_MOCK_DATA) {
     const created = await apiFetch<TicketRecord>("/api/tickets", {
@@ -289,6 +418,9 @@ export async function createTicket(input: CreateTicketInput): Promise<TicketReco
     return created;
   }
 
+=======
+function createTicketInMock(input: CreateTicketInput): TicketRecord {
+>>>>>>> 801072aedc5ddc9c1baaf91b125f21231819d044
   const db = readMockDb();
   const currentUser = getCurrentTicketUser(db);
   const now = new Date();
@@ -352,6 +484,7 @@ export async function createTicket(input: CreateTicketInput): Promise<TicketReco
   return db.tickets[0];
 }
 
+<<<<<<< HEAD
 export async function updateTicket(ticketId: string, input: UpdateTicketInput) {
   if (!USE_MOCK_DATA) {
     const payload: {
@@ -391,6 +524,9 @@ export async function updateTicket(ticketId: string, input: UpdateTicketInput) {
     });
   }
 
+=======
+function updateTicketInMock(ticketId: string, input: UpdateTicketInput) {
+>>>>>>> 801072aedc5ddc9c1baaf91b125f21231819d044
   const db = readMockDb();
   const currentUser = getCurrentTicketUser(db);
   assertWorkflowPermission(currentUser.role);
@@ -527,6 +663,7 @@ export async function updateTicket(ticketId: string, input: UpdateTicketInput) {
   return updated;
 }
 
+<<<<<<< HEAD
 export async function assignTechnician(ticketId: string, technicianId: string) {
   if (!USE_MOCK_DATA) {
     return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}/assign`, {
@@ -535,22 +672,27 @@ export async function assignTechnician(ticketId: string, technicianId: string) {
     });
   }
 
+=======
+function assignTechnicianInMock(ticketId: string, technicianId: string) {
+>>>>>>> 801072aedc5ddc9c1baaf91b125f21231819d044
   const db = readMockDb();
   const currentUser = getCurrentTicketUser(db);
   if (currentUser.role !== "ADMIN") {
     throw new Error("Only admins can assign technicians.");
   }
+
   const technician = db.users.find((user) => user.id === technicianId);
   if (!technician) {
     throw new Error("Technician not found");
   }
 
-  return updateTicket(ticketId, {
+  return updateTicketInMock(ticketId, {
     status: "IN_PROGRESS",
     assignedTechnician: technician,
   });
 }
 
+<<<<<<< HEAD
 export async function addTicketComment(ticketId: string, message: string) {
   if (!USE_MOCK_DATA) {
     return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}/comments`, {
@@ -559,6 +701,9 @@ export async function addTicketComment(ticketId: string, message: string) {
     });
   }
 
+=======
+function addTicketCommentInMock(ticketId: string, message: string) {
+>>>>>>> 801072aedc5ddc9c1baaf91b125f21231819d044
   const db = readMockDb();
   const currentUser = getCurrentTicketUser(db);
   const ticket = db.tickets.find((item) => item.id === ticketId);
@@ -594,6 +739,7 @@ export async function addTicketComment(ticketId: string, message: string) {
   return ticket;
 }
 
+<<<<<<< HEAD
 export async function uploadTicketAttachments(ticketId: string, files: File[]) {
   if (!USE_MOCK_DATA) {
     const formData = new FormData();
@@ -604,6 +750,9 @@ export async function uploadTicketAttachments(ticketId: string, files: File[]) {
     });
   }
 
+=======
+function uploadTicketAttachmentsInMock(ticketId: string, files: File[]) {
+>>>>>>> 801072aedc5ddc9c1baaf91b125f21231819d044
   const db = readMockDb();
   const currentUser = getCurrentTicketUser(db);
   const ticket = db.tickets.find((item) => item.id === ticketId);
@@ -647,6 +796,7 @@ export async function uploadTicketAttachments(ticketId: string, files: File[]) {
   return ticket;
 }
 
+<<<<<<< HEAD
 export async function fetchDashboardSummary(): Promise<DashboardSummary> {
   if (!USE_MOCK_DATA) {
     const response = await apiFetch<{
@@ -681,13 +831,231 @@ export async function fetchDashboardSummary(): Promise<DashboardSummary> {
       },
       recentTickets: response.recentTickets,
     };
+=======
+function deleteTicketInMock(ticketId: string) {
+  const db = readMockDb();
+  db.tickets = db.tickets.filter((ticket) => ticket.id !== ticketId);
+  writeMockDb(db);
+}
+
+export async function fetchTicketMeta(): Promise<TicketMeta> {
+  if (API_ENABLED) {
+    return withOptionalMockFallback(
+      async () => {
+        const response = await apiFetch<TicketMeta>("/api/tickets/meta");
+        return {
+          ...response,
+          technicians: response.technicians.map(normalizeTicketUser),
+        };
+      },
+      () => buildMeta(readMockDb())
+    );
+>>>>>>> 801072aedc5ddc9c1baaf91b125f21231819d044
   }
 
-  const db = readMockDb();
-  return buildDashboardSummary(accessScopeTickets(db));
+  return buildMeta(readMockDb());
+}
+
+export async function fetchTickets(filters: TicketFilters = {}): Promise<TicketListResult> {
+  if (API_ENABLED) {
+    return withOptionalMockFallback(
+      async () => {
+        const params = new URLSearchParams();
+        if (filters.search) params.set("search", filters.search);
+        if (filters.type) params.set("type", filters.type);
+        if (filters.priority) params.set("priority", filters.priority);
+        if (filters.status) params.set("status", filters.status);
+        if (filters.category) params.set("category", filters.category);
+        if (filters.location) params.set("location", filters.location);
+        if (filters.assignedTechnicianId) {
+          params.set("assignedTechnicianId", filters.assignedTechnicianId);
+        }
+        if (filters.overdueOnly) params.set("overdue", "true");
+
+        const response = await apiFetch<{
+          items: TicketRecord[];
+          pagination?: { total: number };
+        }>(`/api/tickets${params.toString() ? `?${params.toString()}` : ""}`);
+
+        return {
+          items: response.items.map(normalizeTicketRecord),
+          total: response.pagination?.total ?? response.items.length,
+        };
+      },
+      () => fetchTicketsFromMock(filters)
+    );
+  }
+
+  return fetchTicketsFromMock(filters);
+}
+
+export async function fetchTicketById(ticketId: string): Promise<TicketRecord> {
+  if (API_ENABLED) {
+    return withOptionalMockFallback(
+      async () => normalizeTicketRecord(await apiFetch<TicketRecord>(`/api/tickets/${ticketId}`)),
+      () => fetchTicketByIdFromMock(ticketId)
+    );
+  }
+
+  return fetchTicketByIdFromMock(ticketId);
+}
+
+export async function createTicket(input: CreateTicketInput): Promise<TicketRecord> {
+  if (API_ENABLED) {
+    const created = normalizeTicketRecord(
+      await apiFetch<TicketRecord>("/api/tickets", {
+        method: "POST",
+        body: JSON.stringify({
+          title: input.title.trim(),
+          description: input.description.trim(),
+          type: input.type,
+          priority: input.priority,
+          category: input.category.trim(),
+          location: {
+            ...input.location,
+            building: input.location.building.trim(),
+            floor: input.location.floor?.trim() ?? "",
+            room: input.location.room?.trim() ?? "",
+            campus: input.location.campus?.trim() ?? "",
+            note: input.location.note?.trim() ?? "",
+          },
+        }),
+      })
+    );
+
+    if (input.attachments?.length) {
+      const formData = new FormData();
+      input.attachments.forEach((file) => formData.append("attachments", file));
+      return normalizeTicketRecord(
+        await apiFetch<TicketRecord>(`/api/tickets/${created.id}/attachments`, {
+          method: "POST",
+          body: formData,
+        })
+      );
+    }
+
+    return created;
+  }
+
+  return createTicketInMock(input);
+}
+
+export async function updateTicket(ticketId: string, input: UpdateTicketInput) {
+  if (API_ENABLED) {
+    return withOptionalMockFallback(
+      async () =>
+        normalizeTicketRecord(
+          await apiFetch<TicketRecord>(`/api/tickets/${ticketId}`, {
+            method: "PUT",
+            body: JSON.stringify(input),
+          })
+        ),
+      () => updateTicketInMock(ticketId, input)
+    );
+  }
+
+  return updateTicketInMock(ticketId, input);
+}
+
+export async function assignTechnician(ticketId: string, technicianId: string) {
+  if (API_ENABLED) {
+    return withOptionalMockFallback(
+      async () =>
+        normalizeTicketRecord(
+          await apiFetch<TicketRecord>(`/api/tickets/${ticketId}/assign`, {
+            method: "PATCH",
+            body: JSON.stringify({ technicianId }),
+          })
+        ),
+      () => assignTechnicianInMock(ticketId, technicianId)
+    );
+  }
+
+  return assignTechnicianInMock(ticketId, technicianId);
+}
+
+export async function addTicketComment(ticketId: string, message: string) {
+  if (API_ENABLED) {
+    return withOptionalMockFallback(
+      async () =>
+        normalizeTicketRecord(
+          await apiFetch<TicketRecord>(`/api/tickets/${ticketId}/comments`, {
+            method: "POST",
+            body: JSON.stringify({ message }),
+          })
+        ),
+      () => addTicketCommentInMock(ticketId, message)
+    );
+  }
+
+  return addTicketCommentInMock(ticketId, message);
+}
+
+export async function uploadTicketAttachments(ticketId: string, files: File[]) {
+  if (API_ENABLED) {
+    return withOptionalMockFallback(
+      async () => {
+        const formData = new FormData();
+        files.forEach((file) => formData.append("attachments", file));
+        return normalizeTicketRecord(
+          await apiFetch<TicketRecord>(`/api/tickets/${ticketId}/attachments`, {
+            method: "POST",
+            body: formData,
+          })
+        );
+      },
+      () => uploadTicketAttachmentsInMock(ticketId, files)
+    );
+  }
+
+  return uploadTicketAttachmentsInMock(ticketId, files);
+}
+
+export async function fetchDashboardSummary(): Promise<DashboardSummary> {
+  if (API_ENABLED) {
+    return withOptionalMockFallback(
+      async () => {
+        const response = await apiFetch<{
+          cards: DashboardSummary["cards"];
+          charts: {
+            statusBreakdown: Array<{ _id: string; count: number }>;
+            priorityBreakdown: Array<{ _id: string; count: number }>;
+            typeBreakdown: Array<{ _id: string; count: number }>;
+            monthlyTrend: Array<{ label: string; created: number }>;
+          };
+          recentTickets: TicketRecord[];
+        }>("/api/dashboard");
+
+        return {
+          cards: response.cards,
+          slaBuckets: [],
+          charts: {
+            statusBreakdown: response.charts.statusBreakdown.map((item) => ({
+              label: item._id,
+              value: item.count,
+            })),
+            priorityBreakdown: response.charts.priorityBreakdown.map((item) => ({
+              label: item._id,
+              value: item.count,
+            })),
+            typeBreakdown: response.charts.typeBreakdown.map((item) => ({
+              label: item._id,
+              value: item.count,
+            })),
+            monthlyTrend: response.charts.monthlyTrend,
+          },
+          recentTickets: response.recentTickets.map(normalizeTicketRecord),
+        };
+      },
+      () => buildDashboardSummary(accessScopeTickets(readMockDb()))
+    );
+  }
+
+  return buildDashboardSummary(accessScopeTickets(readMockDb()));
 }
 
 export async function fetchReports(): Promise<TicketReports> {
+<<<<<<< HEAD
   if (!USE_MOCK_DATA) {
     const response = await apiFetch<{
       summary: TicketReports["summary"];
@@ -711,16 +1079,54 @@ export async function fetchReports(): Promise<TicketReports> {
         value: item.count,
       })),
     };
+=======
+  if (API_ENABLED) {
+    return withOptionalMockFallback(
+      async () => {
+        const response = await apiFetch<{
+          summary: TicketReports["summary"];
+          categoryBreakdown: Array<{ _id: string; count: number }>;
+          technicianWorkload: Array<{ _id: string; count: number }>;
+          typeBreakdown: Array<{ _id: string; count: number }>;
+        }>("/api/reports");
+
+        return {
+          summary: response.summary,
+          categoryBreakdown: response.categoryBreakdown.map((item) => ({
+            label: item._id,
+            value: item.count,
+          })),
+          technicianWorkload: response.technicianWorkload.map((item) => ({
+            label: item._id,
+            value: item.count,
+          })),
+          typeBreakdown: response.typeBreakdown.map((item) => ({
+            label: item._id,
+            value: item.count,
+          })),
+        };
+      },
+      () => buildReports(accessScopeTickets(readMockDb()))
+    );
+>>>>>>> 801072aedc5ddc9c1baaf91b125f21231819d044
   }
 
-  const db = readMockDb();
-  return buildReports(accessScopeTickets(db));
+  return buildReports(accessScopeTickets(readMockDb()));
 }
 
 export async function deleteTicket(ticketId: string) {
-  const db = readMockDb();
-  db.tickets = db.tickets.filter((ticket) => ticket.id !== ticketId);
-  writeMockDb(db);
+  if (API_ENABLED) {
+    return withOptionalMockFallback(
+      async () => {
+        await apiFetch<void>(`/api/tickets/${ticketId}`, {
+          method: "DELETE",
+        });
+      },
+      () => deleteTicketInMock(ticketId)
+    );
+  }
+
+  deleteTicketInMock(ticketId);
 }
 
 export function subscribeToTicketDataChanges(listener: () => void) {

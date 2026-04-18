@@ -17,12 +17,18 @@ import com.server.server.auth.repository.UserRepository;
 import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
 public class AuthService {
+
+    private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -38,198 +44,208 @@ public class AuthService {
     }
 
     public AuthResponse signUp(SignUpRequest request) {
-        String email = request.email().trim().toLowerCase(Locale.ROOT);
+        return executeWithDatabaseLogging("signUp", request.email(), () -> {
+            String email = request.email().trim().toLowerCase(Locale.ROOT);
 
-        if (userRepository.existsByEmail(email)) {
-            throw new DuplicateEmailException("An account with this email already exists");
-        }
+            if (userRepository.existsByEmail(email)) {
+                throw new DuplicateEmailException("An account with this email already exists");
+            }
 
-        User user = new User();
-        user.setEmail(email);
-        user.setPasswordHash(passwordEncoder.encode(request.password()));
-        user.setRole(UserRole.USER);
-        user.setCreatedAt(LocalDateTime.now());
+            User user = new User();
+            user.setEmail(email);
+            user.setPasswordHash(passwordEncoder.encode(request.password()));
+            user.setRole(UserRole.USER);
+            user.setCreatedAt(LocalDateTime.now());
 
-        try {
-            User savedUser = userRepository.save(user);
+            try {
+                User savedUser = userRepository.save(user);
 
-            return AuthResponses.fromUser(savedUser, "Account created successfully.");
-        } catch (DuplicateKeyException exception) {
-            throw new DuplicateEmailException("An account with this email already exists");
-        }
+                return AuthResponses.fromUser(savedUser, "Account created successfully.");
+            } catch (DuplicateKeyException exception) {
+                throw new DuplicateEmailException("An account with this email already exists");
+            }
+        });
     }
 
     public AuthResponse signIn(SignInRequest request) {
-        String email = request.email().trim().toLowerCase(Locale.ROOT);
+        return executeWithDatabaseLogging("signIn", request.email(), () -> {
+            String email = request.email().trim().toLowerCase(Locale.ROOT);
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password"));
+            User user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password"));
 
-        if (user.getPasswordHash() == null || user.getPasswordHash().isBlank()) {
-            throw new InvalidCredentialsException(resolveExternalSignInMessage(user));
-        }
+            if (user.getPasswordHash() == null || user.getPasswordHash().isBlank()) {
+                throw new InvalidCredentialsException(resolveExternalSignInMessage(user));
+            }
 
-        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
-            throw new InvalidCredentialsException("Invalid email or password");
-        }
+            if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+                throw new InvalidCredentialsException("Invalid email or password");
+            }
 
-        User normalizedUser = ensureUserRole(user);
-        return AuthResponses.fromUser(normalizedUser, "Signed in successfully.");
+            User normalizedUser = ensureUserRole(user);
+            return AuthResponses.fromUser(normalizedUser, "Signed in successfully.");
+        });
     }
 
     public AuthResponse signInWithGoogle(GoogleSignInRequest request) {
-        GoogleUserProfile googleUserProfile = googleIdentityVerifier.verify(request.credential());
+        return executeWithDatabaseLogging("signInWithGoogle", null, () -> {
+            GoogleUserProfile googleUserProfile = googleIdentityVerifier.verify(request.credential());
 
-        if (!googleUserProfile.emailVerified()) {
-            throw new InvalidCredentialsException("Your Google account email is not verified.");
-        }
+            if (!googleUserProfile.emailVerified()) {
+                throw new InvalidCredentialsException("Your Google account email is not verified.");
+            }
 
-        User user = userRepository.findByGoogleSubject(googleUserProfile.subject())
-                .orElseGet(() -> userRepository.findByEmail(googleUserProfile.email())
-                        .map(existingUser -> {
-                            if ((existingUser.getGoogleSubject() == null || existingUser.getGoogleSubject().isBlank())
-                                    && usesDifferentSignInMethod(existingUser, "GOOGLE")) {
-                                throw new InvalidCredentialsException(
-                                        "This email already belongs to another sign-in method. Use your existing sign-in option.");
-                            }
+            User user = userRepository.findByGoogleSubject(googleUserProfile.subject())
+                    .orElseGet(() -> userRepository.findByEmail(googleUserProfile.email())
+                            .map(existingUser -> {
+                                if ((existingUser.getGoogleSubject() == null || existingUser.getGoogleSubject().isBlank())
+                                        && usesDifferentSignInMethod(existingUser, "GOOGLE")) {
+                                    throw new InvalidCredentialsException(
+                                            "This email already belongs to another sign-in method. Use your existing sign-in option.");
+                                }
 
-                            return existingUser;
-                        })
-                        .orElseGet(User::new));
+                                return existingUser;
+                            })
+                            .orElseGet(User::new));
 
-        boolean isNewUser = user.getId() == null;
+            boolean isNewUser = user.getId() == null;
 
-        if (user.getGoogleSubject() == null || user.getGoogleSubject().isBlank()) {
-            user.setGoogleSubject(googleUserProfile.subject());
-        }
+            if (user.getGoogleSubject() == null || user.getGoogleSubject().isBlank()) {
+                user.setGoogleSubject(googleUserProfile.subject());
+            }
 
-        user.setEmail(googleUserProfile.email());
-        setIfText(user::setDisplayName, googleUserProfile.displayName());
-        setIfText(user::setPhotoUrl, googleUserProfile.pictureUrl());
-        if (user.getRole() == null) {
-            user.setRole(UserRole.USER);
-        }
+            user.setEmail(googleUserProfile.email());
+            setIfText(user::setDisplayName, googleUserProfile.displayName());
+            setIfText(user::setPhotoUrl, googleUserProfile.pictureUrl());
+            if (user.getRole() == null) {
+                user.setRole(UserRole.USER);
+            }
 
-        if (isNewUser) {
-            user.setCreatedAt(LocalDateTime.now());
-        }
+            if (isNewUser) {
+                user.setCreatedAt(LocalDateTime.now());
+            }
 
-        try {
-            User savedUser = userRepository.save(user);
-            String message = isNewUser
-                    ? "Google account connected successfully."
-                    : "Signed in with Google successfully.";
-            return AuthResponses.fromUser(savedUser, message);
-        } catch (DuplicateKeyException exception) {
-            throw new DuplicateEmailException("An account with this email already exists");
-        }
+            try {
+                User savedUser = userRepository.save(user);
+                String message = isNewUser
+                        ? "Google account connected successfully."
+                        : "Signed in with Google successfully.";
+                return AuthResponses.fromUser(savedUser, message);
+            } catch (DuplicateKeyException exception) {
+                throw new DuplicateEmailException("An account with this email already exists");
+            }
+        });
     }
 
     public AuthResponse signInWithLinkedIn(LinkedInUserProfile linkedInUserProfile) {
-        if (Boolean.FALSE.equals(linkedInUserProfile.emailVerified())) {
-            throw new InvalidCredentialsException("Your LinkedIn account email is not verified.");
-        }
+        return executeWithDatabaseLogging("signInWithLinkedIn", linkedInUserProfile.email(), () -> {
+            if (Boolean.FALSE.equals(linkedInUserProfile.emailVerified())) {
+                throw new InvalidCredentialsException("Your LinkedIn account email is not verified.");
+            }
 
-        if (linkedInUserProfile.email() == null || linkedInUserProfile.email().isBlank()) {
-            throw new InvalidCredentialsException(
-                    "Your LinkedIn account did not provide an email address.");
-        }
+            if (linkedInUserProfile.email() == null || linkedInUserProfile.email().isBlank()) {
+                throw new InvalidCredentialsException(
+                        "Your LinkedIn account did not provide an email address.");
+            }
 
-        User user = userRepository.findByLinkedinSubject(linkedInUserProfile.subject())
-                .orElseGet(() -> userRepository.findByEmail(linkedInUserProfile.email())
-                        .map(existingUser -> {
-                            if ((existingUser.getLinkedinSubject() == null || existingUser.getLinkedinSubject().isBlank())
-                                    && usesDifferentSignInMethod(existingUser, "LINKEDIN")) {
-                                throw new InvalidCredentialsException(
-                                        "This email already belongs to another sign-in method. Use your existing sign-in option.");
-                            }
+            User user = userRepository.findByLinkedinSubject(linkedInUserProfile.subject())
+                    .orElseGet(() -> userRepository.findByEmail(linkedInUserProfile.email())
+                            .map(existingUser -> {
+                                if ((existingUser.getLinkedinSubject() == null || existingUser.getLinkedinSubject().isBlank())
+                                        && usesDifferentSignInMethod(existingUser, "LINKEDIN")) {
+                                    throw new InvalidCredentialsException(
+                                            "This email already belongs to another sign-in method. Use your existing sign-in option.");
+                                }
 
-                            return existingUser;
-                        })
-                        .orElseGet(User::new));
+                                return existingUser;
+                            })
+                            .orElseGet(User::new));
 
-        boolean isNewUser = user.getId() == null;
+            boolean isNewUser = user.getId() == null;
 
-        if (user.getLinkedinSubject() == null || user.getLinkedinSubject().isBlank()) {
-            user.setLinkedinSubject(linkedInUserProfile.subject());
-        }
+            if (user.getLinkedinSubject() == null || user.getLinkedinSubject().isBlank()) {
+                user.setLinkedinSubject(linkedInUserProfile.subject());
+            }
 
-        user.setEmail(linkedInUserProfile.email());
-        setIfText(user::setDisplayName, resolveLinkedInDisplayName(linkedInUserProfile));
-        setIfText(user::setPhotoUrl, linkedInUserProfile.pictureUrl());
-        if (user.getRole() == null) {
-            user.setRole(UserRole.USER);
-        }
+            user.setEmail(linkedInUserProfile.email());
+            setIfText(user::setDisplayName, resolveLinkedInDisplayName(linkedInUserProfile));
+            setIfText(user::setPhotoUrl, linkedInUserProfile.pictureUrl());
+            if (user.getRole() == null) {
+                user.setRole(UserRole.USER);
+            }
 
-        if (isNewUser) {
-            user.setCreatedAt(LocalDateTime.now());
-        }
+            if (isNewUser) {
+                user.setCreatedAt(LocalDateTime.now());
+            }
 
-        try {
-            User savedUser = userRepository.save(user);
-            String message = isNewUser
-                    ? "LinkedIn account connected successfully."
-                    : "Signed in with LinkedIn successfully.";
-            return AuthResponses.fromUser(savedUser, message);
-        } catch (DuplicateKeyException exception) {
-            throw new DuplicateEmailException("An account with this email already exists");
-        }
+            try {
+                User savedUser = userRepository.save(user);
+                String message = isNewUser
+                        ? "LinkedIn account connected successfully."
+                        : "Signed in with LinkedIn successfully.";
+                return AuthResponses.fromUser(savedUser, message);
+            } catch (DuplicateKeyException exception) {
+                throw new DuplicateEmailException("An account with this email already exists");
+            }
+        });
     }
 
     public AuthResponse signInWithGitHub(GitHubUserProfile gitHubUserProfile) {
-        if (!hasText(gitHubUserProfile.subject())) {
-            throw new InvalidCredentialsException(
-                    "GitHub sign-in did not return a valid account identifier.");
-        }
+        return executeWithDatabaseLogging("signInWithGitHub", gitHubUserProfile.email(), () -> {
+            if (!hasText(gitHubUserProfile.subject())) {
+                throw new InvalidCredentialsException(
+                        "GitHub sign-in did not return a valid account identifier.");
+            }
 
-        if (Boolean.FALSE.equals(gitHubUserProfile.emailVerified())) {
-            throw new InvalidCredentialsException("Your GitHub account email is not verified.");
-        }
+            if (Boolean.FALSE.equals(gitHubUserProfile.emailVerified())) {
+                throw new InvalidCredentialsException("Your GitHub account email is not verified.");
+            }
 
-        if (gitHubUserProfile.email() == null || gitHubUserProfile.email().isBlank()) {
-            throw new InvalidCredentialsException(
-                    "Your GitHub account did not provide a verified email address.");
-        }
+            if (gitHubUserProfile.email() == null || gitHubUserProfile.email().isBlank()) {
+                throw new InvalidCredentialsException(
+                        "Your GitHub account did not provide a verified email address.");
+            }
 
-        User user = userRepository.findByGithubSubject(gitHubUserProfile.subject())
-                .orElseGet(() -> userRepository.findByEmail(gitHubUserProfile.email())
-                        .map(existingUser -> {
-                            if ((existingUser.getGithubSubject() == null || existingUser.getGithubSubject().isBlank())
-                                    && usesDifferentSignInMethod(existingUser, "GITHUB")) {
-                                throw new InvalidCredentialsException(
-                                        "This email already belongs to another sign-in method. Use your existing sign-in option.");
-                            }
+            User user = userRepository.findByGithubSubject(gitHubUserProfile.subject())
+                    .orElseGet(() -> userRepository.findByEmail(gitHubUserProfile.email())
+                            .map(existingUser -> {
+                                if ((existingUser.getGithubSubject() == null || existingUser.getGithubSubject().isBlank())
+                                        && usesDifferentSignInMethod(existingUser, "GITHUB")) {
+                                    throw new InvalidCredentialsException(
+                                            "This email already belongs to another sign-in method. Use your existing sign-in option.");
+                                }
 
-                            return existingUser;
-                        })
-                        .orElseGet(User::new));
+                                return existingUser;
+                            })
+                            .orElseGet(User::new));
 
-        boolean isNewUser = user.getId() == null;
+            boolean isNewUser = user.getId() == null;
 
-        if (user.getGithubSubject() == null || user.getGithubSubject().isBlank()) {
-            user.setGithubSubject(gitHubUserProfile.subject());
-        }
+            if (user.getGithubSubject() == null || user.getGithubSubject().isBlank()) {
+                user.setGithubSubject(gitHubUserProfile.subject());
+            }
 
-        user.setEmail(gitHubUserProfile.email());
-        setIfText(user::setDisplayName, resolveGitHubDisplayName(gitHubUserProfile));
-        setIfText(user::setPhotoUrl, gitHubUserProfile.pictureUrl());
-        if (user.getRole() == null) {
-            user.setRole(UserRole.USER);
-        }
+            user.setEmail(gitHubUserProfile.email());
+            setIfText(user::setDisplayName, resolveGitHubDisplayName(gitHubUserProfile));
+            setIfText(user::setPhotoUrl, gitHubUserProfile.pictureUrl());
+            if (user.getRole() == null) {
+                user.setRole(UserRole.USER);
+            }
 
-        if (isNewUser) {
-            user.setCreatedAt(LocalDateTime.now());
-        }
+            if (isNewUser) {
+                user.setCreatedAt(LocalDateTime.now());
+            }
 
-        try {
-            User savedUser = userRepository.save(user);
-            String message = isNewUser
-                    ? "GitHub account connected successfully."
-                    : "Signed in with GitHub successfully.";
-            return AuthResponses.fromUser(savedUser, message);
-        } catch (DuplicateKeyException exception) {
-            throw new DuplicateEmailException("An account with this email already exists");
-        }
+            try {
+                User savedUser = userRepository.save(user);
+                String message = isNewUser
+                        ? "GitHub account connected successfully."
+                        : "Signed in with GitHub successfully.";
+                return AuthResponses.fromUser(savedUser, message);
+            } catch (DuplicateKeyException exception) {
+                throw new DuplicateEmailException("An account with this email already exists");
+            }
+        });
     }
 
     private User ensureUserRole(User user) {
@@ -302,5 +318,18 @@ public class AuthService {
         }
 
         return "This account uses a social sign-in provider. Continue with your connected account.";
+    }
+
+    private <T> T executeWithDatabaseLogging(String operation, String email, Supplier<T> supplier) {
+        try {
+            return supplier.get();
+        } catch (DataAccessException exception) {
+            logger.error(
+                    "Authentication database query failed. operation='{}', email='{}'",
+                    operation,
+                    email == null ? "unknown" : email,
+                    exception);
+            throw exception;
+        }
     }
 }

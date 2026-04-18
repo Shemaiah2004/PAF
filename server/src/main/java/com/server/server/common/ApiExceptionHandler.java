@@ -22,9 +22,13 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import com.server.server.resource.exception.ResourceNotFoundException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    private static final Logger logger = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     @ExceptionHandler(DuplicateEmailException.class)
     public ResponseEntity<ApiError> handleDuplicateEmail(DuplicateEmailException exception) {
@@ -75,6 +79,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ApiError> handleDatabaseError(DataAccessException exception) {
+        logger.error("MongoDB data access failure", exception);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(new ApiError("MongoDB connection is unavailable. Check MONGODB_URI or MONGODB_PASSWORD."));
     }
@@ -111,6 +116,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleGenericException(Exception exception) {
+        logger.error("Unhandled server exception", exception);
         String cause = exception.getCause() != null ? exception.getCause().getMessage() : "";
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ApiError("Internal Error: " + exception.getMessage() + " | Cause: " + cause));
