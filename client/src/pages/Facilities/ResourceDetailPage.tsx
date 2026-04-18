@@ -125,9 +125,17 @@ export default function ResourceDetailPage() {
               <Button variant="outline">Back to List</Button>
             </Link>
             {!isAdmin && (
-              <Button onClick={() => alert("Booking functionality coming soon!")}>
-                Book Resource
-              </Button>
+              resource.status === "ACTIVE" ? (
+                <Link to={`/bookings?resourceId=${resource.id}`}>
+                  <Button>
+                    Book Resource
+                  </Button>
+                </Link>
+              ) : (
+                <Button disabled>
+                  Book Resource (Out of Service)
+                </Button>
+              )
             )}
             {isAdmin && (
               <Link to={`/resources/${resource.id}/edit`}>

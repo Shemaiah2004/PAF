@@ -53,11 +53,13 @@ public class BookingService {
 
     /**
      * Create a new booking.
+     * Supports recurrence (DAILY, WEEKLY, MONTHLY).
+     * For recurring bookings, creates individual booking instances for each occurrence.
      * Extracts user ID from session, validates resource exists and is ACTIVE,
      * checks for time conflicts with existing bookings.
      *
      * @param createRequest the booking creation request
-     * @return the created booking DTO
+     * @return the created booking DTO (for the first occurrence in case of recurrence)
      * @throws ResourceNotFoundException if resource does not exist
      * @throws InvalidBookingException if resource is not ACTIVE
      * @throws InvalidBookingException if end time is not after start time
@@ -79,6 +81,22 @@ public class BookingService {
             throw new InvalidBookingException("End time must be after start time");
         }
 
+        // Handle recurrence
+        String recurrenceType = createRequest.getRecurrenceType() != null ? createRequest.getRecurrenceType() : "NONE";
+        
+        if ("NONE".equals(recurrenceType)) {
+            // Single booking
+            return createSingleBooking(createRequest, userId);
+        } else {
+            // Recurring bookings
+            return createRecurringBookings(createRequest, userId, recurrenceType);
+        }
+    }
+
+    /**
+     * Create a single booking without recurrence.
+     */
+    private BookingDTO createSingleBooking(CreateBookingRequest createRequest, String userId) {
         // Check for time conflicts
         checkTimeConflict(createRequest.getResourceId(), createRequest.getDate(),
                 createRequest.getStartTime(), createRequest.getEndTime());
@@ -96,6 +114,93 @@ public class BookingService {
 
         Booking savedBooking = bookingRepository.save(booking);
         return mapToDTO(savedBooking);
+    }
+
+    /**
+     * Create multiple bookings for recurring pattern.
+     * Expands the recurrence into individual booking instances.
+     * Ensures all bookings are created through the end date (inclusive).
+     */
+    private BookingDTO createRecurringBookings(CreateBookingRequest createRequest, String userId, String recurrenceType) {
+        LocalDate startDate = createRequest.getDate();
+        LocalDate endDate = createRequest.getRecurrenceEndDate();
+
+        if (endDate == null || endDate.isBefore(startDate)) {
+            throw new InvalidBookingException("Recurrence end date must be after start date");
+        }
+
+        System.out.println("🔄 Creating recurring bookings from " + startDate + " to " + endDate + " (" + recurrenceType + ")");
+
+        // Safety limit: prevent creating too many bookings (e.g., more than 365 bookings)
+        int maxBookings = 365;
+        int bookingCount = 0;
+        int conflictCount = 0;
+        
+        Booking firstBooking = null;
+
+        // Generate all booking dates based on recurrence type
+        LocalDate currentDate = startDate;
+        while (!currentDate.isAfter(endDate) && bookingCount < maxBookings) {
+            try {
+                // Check for time conflicts
+                checkTimeConflict(createRequest.getResourceId(), currentDate,
+                        createRequest.getStartTime(), createRequest.getEndTime());
+
+                // Create booking for this date
+                Booking booking = new Booking(
+                        createRequest.getResourceId(),
+                        userId,
+                        currentDate,
+                        createRequest.getStartTime(),
+                        createRequest.getEndTime(),
+                        createRequest.getPurpose(),
+                        createRequest.getAttendees()
+                );
+
+                Booking savedBooking = bookingRepository.save(booking);
+                bookingCount++;
+                System.out.println("✅ Created booking #" + bookingCount + " for " + currentDate);
+                
+                if (firstBooking == null) {
+                    firstBooking = savedBooking;
+                }
+
+                // Calculate next date based on recurrence type
+                LocalDate nextDate = calculateNextDate(currentDate, recurrenceType);
+                
+                // Safety check to prevent infinite loops
+                if (nextDate.equals(currentDate)) {
+                    throw new InvalidBookingException("Recurrence calculation error: next date is same as current date");
+                }
+                
+                currentDate = nextDate;
+            } catch (TimeConflictException e) {
+                // Log and skip this date, continue with next occurrence
+                conflictCount++;
+                System.out.println("⚠️ Conflict #" + conflictCount + " detected for date " + currentDate + ": " + e.getMessage());
+                currentDate = calculateNextDate(currentDate, recurrenceType);
+            }
+        }
+
+        System.out.println("📊 Recurrence complete: Created " + bookingCount + " bookings, skipped " + conflictCount + " conflicts");
+        
+        if (bookingCount == 0) {
+            throw new InvalidBookingException("No bookings could be created for the specified recurrence");
+        }
+
+        return mapToDTO(firstBooking);
+    }
+
+    /**
+     * Calculate the next date based on recurrence type.
+     */
+    private LocalDate calculateNextDate(LocalDate currentDate, String recurrenceType) {
+        return switch (recurrenceType) {
+            case "DAILY" -> currentDate.plusDays(1);
+            case "WEEKLY" -> currentDate.plusWeeks(1);
+            case "MONTHLY" -> currentDate.plusMonths(1);
+            default -> currentDate.plusDays(1);
+        };
     }
 
     /**

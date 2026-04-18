@@ -7,10 +7,15 @@ import { EventInput, DateSelectArg, EventClickArg } from "@fullcalendar/core";
 import { Modal } from "../components/ui/modal";
 import { useModal } from "../hooks/useModal";
 import PageMeta from "../components/common/PageMeta";
+import { getUserBookings } from "../lib/bookingService";
 
 interface CalendarEvent extends EventInput {
   extendedProps: {
     calendar: string;
+    bookingId?: string;
+    purpose?: string;
+    attendees?: number;
+    status?: string;
   };
 }
 
@@ -23,6 +28,7 @@ const Calendar: React.FC = () => {
   const [eventEndDate, setEventEndDate] = useState("");
   const [eventLevel, setEventLevel] = useState("");
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [isLoadingBookings, setIsLoadingBookings] = useState(false);
   const calendarRef = useRef<FullCalendar>(null);
   const { isOpen, openModal, closeModal } = useModal();
 
@@ -33,29 +39,65 @@ const Calendar: React.FC = () => {
     Warning: "warning",
   };
 
+  // Load bookings from API
+  const loadBookings = async () => {
+    try {
+      setIsLoadingBookings(true);
+      const bookings = await getUserBookings();
+      
+      console.log("📊 Bookings fetched from API:", bookings);
+      console.log(`📊 Total bookings: ${bookings.length}`);
+      
+      const calendarEvents: CalendarEvent[] = bookings.map((booking: any) => {
+        // Determine color based on status
+        let calendarColor = "Primary";
+        if (booking.status === "APPROVED") {
+          calendarColor = "Success";
+        } else if (booking.status === "REJECTED") {
+          calendarColor = "Danger";
+        } else if (booking.status === "PENDING") {
+          calendarColor = "Warning";
+        }
+
+        const eventStart = `${booking.date}T${booking.startTime}`;
+        console.log(`📅 Booking: ${booking.purpose} on ${eventStart}`);
+
+        return {
+          id: booking.id?.toString(),
+          title: `${booking.purpose || "Booking"} (${booking.attendees || 0} attendees)`,
+          start: eventStart,
+          end: `${booking.date}T${booking.endTime}`,
+          extendedProps: {
+            calendar: calendarColor,
+            bookingId: booking.id,
+            purpose: booking.purpose,
+            attendees: booking.attendees,
+            status: booking.status,
+          },
+        };
+      });
+
+      console.log("📊 Calendar events created:", calendarEvents);
+      setEvents(calendarEvents);
+    } catch (err) {
+      console.error("❌ Failed to load bookings:", err);
+      setEvents([]);
+    } finally {
+      setIsLoadingBookings(false);
+    }
+  };
+
+  // Load bookings on mount and when window regains focus (user comes back to tab)
   useEffect(() => {
-    // Initialize with some events
-    setEvents([
-      {
-        id: "1",
-        title: "Event Conf.",
-        start: new Date().toISOString().split("T")[0],
-        extendedProps: { calendar: "Danger" },
-      },
-      {
-        id: "2",
-        title: "Meeting",
-        start: new Date(Date.now() + 86400000).toISOString().split("T")[0],
-        extendedProps: { calendar: "Success" },
-      },
-      {
-        id: "3",
-        title: "Workshop",
-        start: new Date(Date.now() + 172800000).toISOString().split("T")[0],
-        end: new Date(Date.now() + 259200000).toISOString().split("T")[0],
-        extendedProps: { calendar: "Primary" },
-      },
-    ]);
+    loadBookings();
+
+    // Refresh bookings when user comes back to this tab
+    const handleFocus = () => {
+      loadBookings();
+    };
+
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
   }, []);
 
   const handleDateSelect = (selectInfo: DateSelectArg) => {
@@ -128,7 +170,7 @@ const Calendar: React.FC = () => {
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
             initialView="dayGridMonth"
             headerToolbar={{
-              left: "prev,next addEventButton",
+              left: "prev,next refreshBookings",
               center: "title",
               right: "dayGridMonth,timeGridWeek,timeGridDay",
             }}
@@ -138,9 +180,10 @@ const Calendar: React.FC = () => {
             eventClick={handleEventClick}
             eventContent={renderEventContent}
             customButtons={{
-              addEventButton: {
-                text: "Add Event +",
-                click: openModal,
+              refreshBookings: {
+                text: isLoadingBookings ? "Loading..." : "🔄 Refresh",
+                click: loadBookings,
+                hint: "Refresh bookings from server",
               },
             }}
           />

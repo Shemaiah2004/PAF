@@ -23,6 +23,8 @@ export interface CreateBookingRequest {
   endTime: string;
   purpose: string;
   attendees: number;
+  recurrenceType: "NONE" | "DAILY" | "WEEKLY" | "MONTHLY"; // Recurrence type (default: NONE)
+  recurrenceEndDate?: string; // When the recurrence should end (YYYY-MM-DD)
 }
 
 const getHeaders = (): HeadersInit => {

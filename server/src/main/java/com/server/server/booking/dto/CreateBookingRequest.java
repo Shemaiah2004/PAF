@@ -29,6 +29,10 @@ public class CreateBookingRequest {
     @Min(value = 1, message = "Attendees must be at least 1")
     private Integer attendees;
 
+    // Recurrence fields
+    private String recurrenceType; // "NONE", "DAILY", "WEEKLY", "MONTHLY"
+    private LocalDate recurrenceEndDate; // End date for recurrence
+
     // Constructors
     public CreateBookingRequest() {
     }
@@ -41,6 +45,20 @@ public class CreateBookingRequest {
         this.endTime = endTime;
         this.purpose = purpose;
         this.attendees = attendees;
+        this.recurrenceType = "NONE";
+    }
+
+    public CreateBookingRequest(String resourceId, LocalDate date, LocalTime startTime,
+                                LocalTime endTime, String purpose, Integer attendees,
+                                String recurrenceType, LocalDate recurrenceEndDate) {
+        this.resourceId = resourceId;
+        this.date = date;
+        this.startTime = startTime;
+        this.endTime = endTime;
+        this.purpose = purpose;
+        this.attendees = attendees;
+        this.recurrenceType = recurrenceType != null ? recurrenceType : "NONE";
+        this.recurrenceEndDate = recurrenceEndDate;
     }
 
     // Getters and Setters
@@ -90,5 +108,21 @@ public class CreateBookingRequest {
 
     public void setAttendees(Integer attendees) {
         this.attendees = attendees;
+    }
+
+    public String getRecurrenceType() {
+        return recurrenceType != null ? recurrenceType : "NONE";
+    }
+
+    public void setRecurrenceType(String recurrenceType) {
+        this.recurrenceType = recurrenceType != null ? recurrenceType : "NONE";
+    }
+
+    public LocalDate getRecurrenceEndDate() {
+        return recurrenceEndDate;
+    }
+
+    public void setRecurrenceEndDate(LocalDate recurrenceEndDate) {
+        this.recurrenceEndDate = recurrenceEndDate;
     }
 }

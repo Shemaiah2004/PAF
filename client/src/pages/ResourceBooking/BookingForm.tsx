@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "react-router";
 import { useNotification } from "../../components/common/NotificationProvider";
 import Button from "../../components/ui/button/Button";
+import DatePicker from "../../components/ui/DatePicker";
 import { Resource } from "../../lib/resourceService";
 import { 
   createBooking, 
@@ -49,17 +51,23 @@ const assetTypeLabels: Record<string, string> = Object.entries(
 ).reduce((acc, [key, value]) => ({ ...acc, [key]: value.label }), {});
 
 export default function BookingForm({ resources }: BookingFormProps) {
+  const [searchParams] = useSearchParams();
+  const initialResourceId = searchParams.get("resourceId") || "";
+
   const { showNotification } = useNotification();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedAssetType, setSelectedAssetType] = useState<string>("");
+  const [resourceSearchQuery, setResourceSearchQuery] = useState<string>("");
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState<CreateBookingRequest>({
-    resourceId: "",
+    resourceId: initialResourceId,
     date: "",
     startTime: "",
     endTime: "",
     purpose: "",
     attendees: 1,
+    recurrenceType: "NONE",
+    recurrenceEndDate: "",
   });
 
   // State for conflict detection and availability
@@ -68,10 +76,27 @@ export default function BookingForm({ resources }: BookingFormProps) {
   const [nextAvailableSlot, setNextAvailableSlot] = useState<{ availableStartTime: string; reason: string } | null>(null);
   const [isLoadingBookings, setIsLoadingBookings] = useState(false);
 
-  // Filter resources based on selected asset type
-  const filteredResources = selectedAssetType
-    ? resources.filter((r) => r.type === selectedAssetType)
-    : resources;
+  // Auto-select asset type based on initial resource from URL
+  useEffect(() => {
+    if (initialResourceId && resources.length > 0) {
+      const selectedRes = resources.find((r) => r.id === initialResourceId);
+      if (selectedRes) {
+        setSelectedAssetType(selectedRes.type);
+      }
+    }
+  }, [initialResourceId, resources]);
+
+  // Filter resources based on selected asset type and search query
+  const filteredResources = resources
+    .filter((r) => selectedAssetType ? r.type === selectedAssetType : true)
+    .filter((r) => {
+      const query = resourceSearchQuery.toLowerCase();
+      return (
+        r.name.toLowerCase().includes(query) ||
+        r.location.toLowerCase().includes(query) ||
+        assetTypeLabels[r.type].toLowerCase().includes(query)
+      );
+    });
 
   // Calculate form completion
   const requiredFields = ["resourceId", "date", "startTime", "endTime", "purpose"];
@@ -81,6 +106,34 @@ export default function BookingForm({ resources }: BookingFormProps) {
     return value && value !== "";
   }).length;
   const completionPercentage = Math.round((completedFields / requiredFields.length) * 100);
+
+  // Calculate number of recurrences
+  const calculateRecurrenceCount = () => {
+    if (!formData.date || !formData.recurrenceEndDate || (formData.recurrenceType as string) === "NONE") {
+      return 0;
+    }
+
+    const start = new Date(formData.date);
+    const end = new Date(formData.recurrenceEndDate);
+    const timeDiff = end.getTime() - start.getTime();
+    const dayDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
+
+    switch (formData.recurrenceType) {
+      case "DAILY":
+        return dayDiff + 1;
+      case "WEEKLY":
+        return Math.floor(dayDiff / 7) + 1;
+      case "MONTHLY": {
+        let months = (end.getFullYear() - start.getFullYear()) * 12;
+        months += end.getMonth() - start.getMonth();
+        return months + 1;
+      }
+      default:
+        return 0;
+    }
+  };
+
+  const recurrenceCount = calculateRecurrenceCount();
 
   // Get selected resource
   const selectedResource = formData.resourceId ? resources.find((r) => r.id === formData.resourceId) : null;
@@ -170,12 +223,13 @@ export default function BookingForm({ resources }: BookingFormProps) {
       [name]: numValue,
     }));
 
-    // Auto-select resource type when resource is selected
+    // Auto-select resource type when resource is selected and clear search
     if (name === "resourceId" && value) {
       const selectedRes = resources.find((r) => r.id === value);
       if (selectedRes) {
         setSelectedAssetType(selectedRes.type);
       }
+      setResourceSearchQuery("");
     }
 
     // Check for time conflicts when start or end time changes
@@ -232,9 +286,19 @@ export default function BookingForm({ resources }: BookingFormProps) {
     // Final validation
     const newErrors: Record<string, string> = {};
     requiredFields.forEach((field) => {
-      const error = validateField(field, formData[field as keyof CreateBookingRequest]);
+      const value = formData[field as keyof CreateBookingRequest];
+      const error = validateField(field, value !== undefined ? value : "");
       if (error) newErrors[field] = error;
     });
+
+    // Validate recurrence end date if recurrence is selected
+    if ((formData.recurrenceType as string) !== "NONE") {
+      if (!formData.recurrenceEndDate) {
+        newErrors.recurrenceEndDate = "Recurrence end date is required";
+      } else if (new Date(formData.recurrenceEndDate) <= new Date(formData.date)) {
+        newErrors.recurrenceEndDate = "Recurrence end date must be after start date";
+      }
+    }
 
     if (Object.keys(newErrors).length > 0) {
       setFormErrors(newErrors);
@@ -280,6 +344,8 @@ export default function BookingForm({ resources }: BookingFormProps) {
         endTime: "",
         purpose: "",
         attendees: 1,
+        recurrenceType: "NONE",
+        recurrenceEndDate: "",
       });
 
       setFormErrors({});
@@ -397,9 +463,36 @@ export default function BookingForm({ resources }: BookingFormProps) {
               {formData.resourceId && !formErrors.resourceId && <CheckCircleIcon className="h-4 w-4 text-green-500" />}
               {formErrors.resourceId && <AlertIcon className="h-4 w-4 text-red-500" />}
             </div>
+            
+            {/* Resource Search Box */}
+            <div className="mb-4 relative">
+              <input
+                type="text"
+                placeholder="🔍 Search resources by name, location, or type..."
+                value={resourceSearchQuery}
+                onChange={(e) => setResourceSearchQuery(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 pr-10 text-sm text-gray-900 placeholder-gray-500 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 transition-all dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:placeholder-gray-400"
+              />
+              {resourceSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setResourceSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                  title="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
             {selectedAssetType && (
               <p className="mb-3 text-xs font-medium text-brand-600 dark:text-brand-400">
                 ✓ {filteredResources.length} {assetTypeConfig[selectedAssetType]?.label.toLowerCase() || "resource"}{filteredResources.length !== 1 ? "s" : ""} available
+              </p>
+            )}
+            {resourceSearchQuery && (
+              <p className="mb-3 text-xs font-medium text-gray-600 dark:text-gray-400">
+                Found {filteredResources.length} matching resource{filteredResources.length !== 1 ? "s" : ""}
               </p>
             )}
             <select
@@ -413,7 +506,7 @@ export default function BookingForm({ resources }: BookingFormProps) {
                   : "border-gray-300 focus:border-brand-500 focus:ring-brand-500/50 dark:border-gray-600"
               }`}
             >
-              <option value="">{filteredResources.length === 0 ? "❌ No resources available" : "📌 Select a resource..."}</option>
+              <option value="">{filteredResources.length === 0 ? "❌ No resources found" : "📌 Select a resource..."}</option>
               {filteredResources.map((resource) => (
                 <option key={resource.id} value={resource.id}>
                   {resource.name} • {assetTypeLabels[resource.type]} • {resource.capacity}p • {resource.location}
@@ -484,30 +577,22 @@ export default function BookingForm({ resources }: BookingFormProps) {
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             {/* Date */}
             <div>
-              <div className="mb-3 flex items-center gap-2">
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300">Date *</label>
-                {formData.date && !formErrors.date && <CheckCircleIcon className="h-4 w-4 text-green-500" />}
-                {formErrors.date && <AlertIcon className="h-4 w-4 text-red-500" />}
-              </div>
-              <input
-                type="date"
-                name="date"
+              <DatePicker
+                label="Date *"
                 value={formData.date}
-                onChange={handleChange}
+                onChange={(date) => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    date,
+                  }));
+                }}
+                minDate={new Date().toISOString().split("T")[0]}
+                error={!!formErrors.date}
+                errorMessage={formErrors.date}
+                placeholder="Select booking date"
                 required
-                min={new Date().toISOString().split("T")[0]}
-                className={`w-full rounded-lg border px-4 py-3 text-gray-900 focus:outline-none focus:ring-2 transition-all dark:bg-gray-800 dark:text-white ${
-                  formErrors.date
-                    ? "border-red-300 focus:border-red-500 focus:ring-red-500/50 dark:border-red-600"
-                    : "border-gray-300 focus:border-brand-500 focus:ring-brand-500/50 dark:border-gray-600"
-                }`}
+                showWeekday
               />
-              {formErrors.date && <p className="mt-2 text-xs text-red-600 dark:text-red-400">⚠️ {formErrors.date}</p>}
-              {formData.date && (
-                <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-                  📅 Selected: {new Date(formData.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-                </p>
-              )}
             </div>
 
             {/* Time Range */}
@@ -648,7 +733,7 @@ export default function BookingForm({ resources }: BookingFormProps) {
             </div>
           </div>
 
-          {/* Booked Time Slots Display */}
+          {/* Booked Time Slots Display with Timeline */}
           {formData.resourceId && formData.date && (
             <div className="mt-6 border-t border-gray-200 pt-6 dark:border-gray-700">
               <div className="mb-4 flex items-center gap-2">
@@ -660,7 +745,88 @@ export default function BookingForm({ resources }: BookingFormProps) {
               </div>
 
               {bookedSlots.length > 0 ? (
-                <div className="space-y-2">
+                <div className="space-y-3">
+                  {/* Time Timeline Visualization */}
+                  <div className="mb-5 rounded-lg bg-gradient-to-r from-gray-50 to-gray-100 p-4 dark:from-gray-900 dark:to-gray-800">
+                    <div className="mb-2 flex justify-between text-xs font-semibold text-gray-600 dark:text-gray-400">
+                      <span>08:00 (Start)</span>
+                      <span>18:00 (End)</span>
+                    </div>
+                    <div className="relative h-12 overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+                      {/* Time marks */}
+                      <div className="absolute inset-0 flex">
+                        {Array.from({ length: 11 }).map((_, i) => (
+                          <div key={i} className="flex-1 border-r border-gray-200 last:border-r-0 dark:border-gray-700" />
+                        ))}
+                      </div>
+
+                      {/* Booked slots */}
+                      {bookedSlots.map((slot, idx) => {
+                        const startHour = parseInt(slot.start.split(":")[0]);
+                        const startMin = parseInt(slot.start.split(":")[1]) || 0;
+                        const endHour = parseInt(slot.end.split(":")[0]);
+                        const endMin = parseInt(slot.end.split(":")[1]) || 0;
+
+                        const startPercent = ((startHour - 8 + startMin / 60) / 10) * 100;
+                        const endPercent = ((endHour - 8 + endMin / 60) / 10) * 100;
+
+                        const isConflicting =
+                          formData.startTime &&
+                          formData.endTime &&
+                          hasTimeConflict(formData.startTime, formData.endTime, slot.start, slot.end);
+
+                        return (
+                          <div
+                            key={idx}
+                            className={`absolute top-1 bottom-1 rounded-md flex items-center justify-center text-xs font-bold text-white transition-all ${
+                              isConflicting
+                                ? "bg-red-500 dark:bg-red-600 opacity-90 hover:opacity-100"
+                                : "bg-orange-400 dark:bg-orange-500 opacity-75 hover:opacity-90"
+                            }`}
+                            style={{
+                              left: `${startPercent}%`,
+                              right: `${100 - endPercent}%`,
+                              minWidth: "40px",
+                            }}
+                            title={`${slot.start} - ${slot.end} (${slot.status})`}
+                          >
+                            {isConflicting ? "❌" : "📌"}
+                          </div>
+                        );
+                      })}
+
+                      {/* Your proposed time */}
+                      {formData.startTime && formData.endTime && (
+                        <div
+                          className="absolute top-1 bottom-1 rounded-md flex items-center justify-center text-xs font-bold text-gray-900 bg-green-300 dark:bg-green-500 dark:text-white opacity-60 border-2 border-dashed border-green-600"
+                          style={{
+                            left: `${((parseInt(formData.startTime.split(":")[0]) - 8 + (parseInt(formData.startTime.split(":")[1]) || 0) / 60) / 10) * 100}%`,
+                            right: `${100 - ((parseInt(formData.endTime.split(":")[0]) - 8 + (parseInt(formData.endTime.split(":")[1]) || 0) / 60) / 10) * 100}%`,
+                            minWidth: "40px",
+                          }}
+                          title="Your proposed booking time"
+                        >
+                          ✓
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-2 flex gap-4 text-xs font-medium">
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded bg-orange-400"></div>
+                        <span className="text-gray-600 dark:text-gray-400">Booked</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded bg-red-500"></div>
+                        <span className="text-gray-600 dark:text-gray-400">Conflict</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded-sm bg-green-300 border border-green-600"></div>
+                        <span className="text-gray-600 dark:text-gray-400">Your Time</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Detailed slot list */}
                   {bookedSlots.map((slot, idx) => {
                     const isConflicting = formData.startTime && formData.endTime && hasTimeConflict(formData.startTime, formData.endTime, slot.start, slot.end);
                     return (
@@ -827,6 +993,85 @@ export default function BookingForm({ resources }: BookingFormProps) {
                 />
               )}
             </div>
+
+            {/* Recurrence Settings */}
+            <div className="mt-8 border-t border-gray-200 pt-8 dark:border-gray-700">
+              <div className="mb-6 flex items-center gap-3">
+                <div className="rounded-lg bg-gradient-to-br from-purple-400 to-purple-600 p-3 shadow-md">
+                  <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Recurrence</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Schedule booking for multiple dates automatically</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                {/* Recurrence Type */}
+                <div>
+                  <label className="mb-3 block text-sm font-bold text-gray-700 dark:text-gray-300">
+                    Repeat Booking
+                  </label>
+                  <select
+                    name="recurrenceType"
+                    value={formData.recurrenceType}
+                    onChange={handleChange}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-gray-900 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                  >
+                    <option value="NONE">Don't repeat</option>
+                    <option value="DAILY">Daily</option>
+                    <option value="WEEKLY">Weekly (same day)</option>
+                    <option value="MONTHLY">Monthly (same date)</option>
+                  </select>
+                  <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                    ℹ️ Booking will repeat with the selected frequency
+                  </p>
+                </div>
+
+                {/* Recurrence End Date - Only show if recurrence is selected */}
+                {(formData.recurrenceType as string) !== "NONE" && (
+                  <div>
+                    <DatePicker
+                      label="Repeat Until *"
+                      value={formData.recurrenceEndDate || ""}
+                      onChange={(date) => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          recurrenceEndDate: date,
+                        }));
+                      }}
+                      minDate={formData.date}
+                      error={!!formErrors.recurrenceEndDate}
+                      errorMessage={formErrors.recurrenceEndDate}
+                      placeholder="Select end date for recurrence"
+                      required={(formData.recurrenceType as string) !== "NONE"}
+                      showWeekday
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Recurrence Preview */}
+              {(formData.recurrenceType as string) !== "NONE" && formData.date && formData.recurrenceEndDate && (
+                <div className="mt-4 rounded-lg border border-purple-200 bg-purple-50 p-4 dark:border-purple-900 dark:bg-purple-900/20">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-purple-700 dark:text-purple-400">
+                      📅 Recurrence Preview
+                    </p>
+                    <span className="rounded-full bg-purple-200 px-3 py-1 text-xs font-bold text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+                      {recurrenceCount} booking{recurrenceCount !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-purple-600 dark:text-purple-300">
+                    {formData.recurrenceType === "DAILY" && `This booking will repeat every day from ${new Date(formData.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })} to ${new Date(formData.recurrenceEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                    {formData.recurrenceType === "WEEKLY" && `This booking will repeat every week on ${new Date(formData.date).toLocaleDateString("en-US", { weekday: "long" })} from ${new Date(formData.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })} to ${new Date(formData.recurrenceEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                    {formData.recurrenceType === "MONTHLY" && `This booking will repeat on day ${new Date(formData.date).getDate()} of each month from ${new Date(formData.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })} to ${new Date(formData.recurrenceEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -909,6 +1154,7 @@ export default function BookingForm({ resources }: BookingFormProps) {
             variant="outline"
             onClick={() => {
               setSelectedAssetType("");
+              setResourceSearchQuery("");
               setFormData({
                 resourceId: "",
                 date: "",
@@ -916,6 +1162,8 @@ export default function BookingForm({ resources }: BookingFormProps) {
                 endTime: "",
                 purpose: "",
                 attendees: 1,
+                recurrenceType: "NONE",
+                recurrenceEndDate: "",
               });
               setFormErrors({});
             }}

@@ -1,6 +1,7 @@
 package com.server.server.booking.dto;
 
 import com.server.server.booking.entity.BookingStatus;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.LocalDateTime;
@@ -12,13 +13,22 @@ public class BookingDTO {
     private String id;
     private String resourceId;
     private String userId;
+    
+    @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate date;
+    
+    @JsonFormat(pattern = "HH:mm:ss")
     private LocalTime startTime;
+    
+    @JsonFormat(pattern = "HH:mm:ss")
     private LocalTime endTime;
+    
     private String purpose;
     private Integer attendees;
     private BookingStatus status;
     private String reason;
+    
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime createdAt;
 
     // Constructors
