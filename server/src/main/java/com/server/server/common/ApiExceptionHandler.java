@@ -10,6 +10,8 @@ import com.server.server.user.exception.UserNotFoundException;
 import com.server.server.booking.exception.TimeConflictException;
 import com.server.server.booking.exception.BookingNotFoundException;
 import com.server.server.booking.exception.InvalidBookingException;
+import com.server.server.ticketing.exception.InvalidTicketWorkflowException;
+import com.server.server.ticketing.exception.TicketNotFoundException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -94,6 +96,16 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(InvalidBookingException.class)
     public ResponseEntity<ApiError> handleInvalidBooking(InvalidBookingException exception) {
+        return ResponseEntity.badRequest().body(new ApiError(exception.getMessage()));
+    }
+
+    @ExceptionHandler(TicketNotFoundException.class)
+    public ResponseEntity<ApiError> handleTicketNotFound(TicketNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiError(exception.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidTicketWorkflowException.class)
+    public ResponseEntity<ApiError> handleInvalidTicketWorkflow(InvalidTicketWorkflowException exception) {
         return ResponseEntity.badRequest().body(new ApiError(exception.getMessage()));
     }
 

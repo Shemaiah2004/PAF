@@ -1,4 +1,4 @@
-import { getStoredAuthSession, parseResponsePayload } from "../auth";
+import { authApiBaseUrl, getStoredAuthSession, parseResponsePayload } from "../auth";
 import {
   applyTicketFilters,
   buildDashboardSummary,
@@ -20,6 +20,7 @@ import type {
   TicketFilters,
   TicketListResult,
   TicketMeta,
+  TicketPriority,
   TicketRecord,
   TicketReports,
   TicketRole,
@@ -30,11 +31,12 @@ import type {
 
 const STORAGE_KEY = "paf.ticketing.mock-db.v1";
 const TICKET_DATA_CHANGE_EVENT = "paf.ticketing.data-changed";
-const API_ENABLED = import.meta.env.VITE_TICKETING_ENABLE_API === "true";
-const API_BASE_URL = (import.meta.env.VITE_TICKETING_API_BASE_URL ?? "http://localhost:4000").replace(
+const API_ENABLED = import.meta.env.VITE_TICKETING_ENABLE_API !== "false";
+const API_BASE_URL = (import.meta.env.VITE_TICKETING_API_BASE_URL ?? authApiBaseUrl).replace(
   /\/$/,
   ""
 );
+const USE_MOCK_DATA = !API_ENABLED;
 function getTicketingApiToken() {
   if (typeof window === "undefined") {
     return import.meta.env.VITE_TICKETING_API_TOKEN ?? null;
@@ -178,6 +180,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    credentials: "include",
     headers,
   });
 
@@ -195,44 +198,36 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function fetchTicketMeta(): Promise<TicketMeta> {
-  if (API_ENABLED) {
-    try {
-      return await apiFetch<TicketMeta>("/api/tickets/meta");
-    } catch {
-      // Fall back to local mock state for this workspace.
-    }
+  if (!USE_MOCK_DATA) {
+    return await apiFetch<TicketMeta>("/api/tickets/meta");
   }
 
   return buildMeta(readMockDb());
 }
 
 export async function fetchTickets(filters: TicketFilters = {}): Promise<TicketListResult> {
-  if (API_ENABLED) {
-    try {
-      const params = new URLSearchParams();
-      if (filters.search) params.set("search", filters.search);
-      if (filters.type) params.set("type", filters.type);
-      if (filters.priority) params.set("priority", filters.priority);
-      if (filters.status) params.set("status", filters.status);
-      if (filters.category) params.set("category", filters.category);
-      if (filters.location) params.set("location", filters.location);
-      if (filters.assignedTechnicianId) {
-        params.set("assignedTechnicianId", filters.assignedTechnicianId);
-      }
-      if (filters.overdueOnly) params.set("overdue", "true");
-
-      const response = await apiFetch<{
-        items: TicketRecord[];
-        pagination?: { total: number };
-      }>(`/api/tickets${params.toString() ? `?${params.toString()}` : ""}`);
-
-      return {
-        items: response.items,
-        total: response.pagination?.total ?? response.items.length,
-      };
-    } catch {
-      // Fall back to local mock state for this workspace.
+  if (!USE_MOCK_DATA) {
+    const params = new URLSearchParams();
+    if (filters.search) params.set("search", filters.search);
+    if (filters.type) params.set("type", filters.type);
+    if (filters.priority) params.set("priority", filters.priority);
+    if (filters.status) params.set("status", filters.status);
+    if (filters.category) params.set("category", filters.category);
+    if (filters.location) params.set("location", filters.location);
+    if (filters.assignedTechnicianId) {
+      params.set("assignedTechnicianId", filters.assignedTechnicianId);
     }
+    if (filters.overdueOnly) params.set("overdue", "true");
+
+    const response = await apiFetch<{
+      items: TicketRecord[];
+      pagination?: { total: number };
+    }>(`/api/tickets${params.toString() ? `?${params.toString()}` : ""}`);
+
+    return {
+      items: response.items,
+      total: response.pagination?.total ?? response.items.length,
+    };
   }
 
   const db = readMockDb();
@@ -247,12 +242,8 @@ export async function fetchTickets(filters: TicketFilters = {}): Promise<TicketL
 }
 
 export async function fetchTicketById(ticketId: string): Promise<TicketRecord> {
-  if (API_ENABLED) {
-    try {
-      return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}`);
-    } catch {
-      // Fall back to local mock state for this workspace.
-    }
+  if (!USE_MOCK_DATA) {
+    return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}`);
   }
 
   const db = readMockDb();
@@ -266,7 +257,7 @@ export async function fetchTicketById(ticketId: string): Promise<TicketRecord> {
 }
 
 export async function createTicket(input: CreateTicketInput): Promise<TicketRecord> {
-  if (API_ENABLED) {
+  if (!USE_MOCK_DATA) {
     const created = await apiFetch<TicketRecord>("/api/tickets", {
       method: "POST",
       body: JSON.stringify({
@@ -362,15 +353,42 @@ export async function createTicket(input: CreateTicketInput): Promise<TicketReco
 }
 
 export async function updateTicket(ticketId: string, input: UpdateTicketInput) {
-  if (API_ENABLED) {
-    try {
-      return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}`, {
-        method: "PUT",
-        body: JSON.stringify(input),
-      });
-    } catch {
-      // Fall back to local mock state for this workspace.
+  if (!USE_MOCK_DATA) {
+    const payload: {
+      status?: TicketStatus;
+      priority?: TicketPriority;
+      category?: string;
+      description?: string;
+      location?: UpdateTicketInput["location"];
+      requiresExtendedResolution?: boolean;
+      assignedTechnicianId?: string;
+    } = {};
+
+    if (input.status) payload.status = input.status;
+    if (input.priority) payload.priority = input.priority;
+    if (input.category !== undefined) payload.category = input.category.trim();
+    if (input.description !== undefined) payload.description = input.description.trim();
+    if (input.location) {
+      payload.location = {
+        ...input.location,
+        building: input.location.building.trim(),
+        floor: input.location.floor?.trim() ?? "",
+        room: input.location.room?.trim() ?? "",
+        campus: input.location.campus?.trim() ?? "",
+        note: input.location.note?.trim() ?? "",
+      };
     }
+    if (input.requiresExtendedResolution !== undefined) {
+      payload.requiresExtendedResolution = input.requiresExtendedResolution;
+    }
+    if (Object.prototype.hasOwnProperty.call(input, "assignedTechnician")) {
+      payload.assignedTechnicianId = input.assignedTechnician?.id ?? "";
+    }
+
+    return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
   }
 
   const db = readMockDb();
@@ -510,15 +528,11 @@ export async function updateTicket(ticketId: string, input: UpdateTicketInput) {
 }
 
 export async function assignTechnician(ticketId: string, technicianId: string) {
-  if (API_ENABLED) {
-    try {
-      return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}/assign`, {
-        method: "PATCH",
-        body: JSON.stringify({ technicianId }),
-      });
-    } catch {
-      // Fall back to local mock state for this workspace.
-    }
+  if (!USE_MOCK_DATA) {
+    return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}/assign`, {
+      method: "PATCH",
+      body: JSON.stringify({ technicianId }),
+    });
   }
 
   const db = readMockDb();
@@ -538,15 +552,11 @@ export async function assignTechnician(ticketId: string, technicianId: string) {
 }
 
 export async function addTicketComment(ticketId: string, message: string) {
-  if (API_ENABLED) {
-    try {
-      return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}/comments`, {
-        method: "POST",
-        body: JSON.stringify({ message }),
-      });
-    } catch {
-      // Fall back to local mock state for this workspace.
-    }
+  if (!USE_MOCK_DATA) {
+    return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    });
   }
 
   const db = readMockDb();
@@ -585,17 +595,13 @@ export async function addTicketComment(ticketId: string, message: string) {
 }
 
 export async function uploadTicketAttachments(ticketId: string, files: File[]) {
-  if (API_ENABLED) {
-    try {
-      const formData = new FormData();
-      files.forEach((file) => formData.append("attachments", file));
-      return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}/attachments`, {
-        method: "POST",
-        body: formData,
-      });
-    } catch {
-      // Fall back to local mock state for this workspace.
-    }
+  if (!USE_MOCK_DATA) {
+    const formData = new FormData();
+    files.forEach((file) => formData.append("attachments", file));
+    return await apiFetch<TicketRecord>(`/api/tickets/${ticketId}/attachments`, {
+      method: "POST",
+      body: formData,
+    });
   }
 
   const db = readMockDb();
@@ -642,42 +648,39 @@ export async function uploadTicketAttachments(ticketId: string, files: File[]) {
 }
 
 export async function fetchDashboardSummary(): Promise<DashboardSummary> {
-  if (API_ENABLED) {
-    try {
-      const response = await apiFetch<{
-        cards: DashboardSummary["cards"];
-        charts: {
-          statusBreakdown: Array<{ _id: string; count: number }>;
-          priorityBreakdown: Array<{ _id: string; count: number }>;
-          typeBreakdown: Array<{ _id: string; count: number }>;
-          monthlyTrend: Array<{ label: string; created: number }>;
-        };
-        recentTickets: TicketRecord[];
-      }>("/api/dashboard");
-
-      return {
-        cards: response.cards,
-        slaBuckets: [],
-        charts: {
-          statusBreakdown: response.charts.statusBreakdown.map((item) => ({
-            label: item._id,
-            value: item.count,
-          })),
-          priorityBreakdown: response.charts.priorityBreakdown.map((item) => ({
-            label: item._id,
-            value: item.count,
-          })),
-          typeBreakdown: response.charts.typeBreakdown.map((item) => ({
-            label: item._id,
-            value: item.count,
-          })),
-          monthlyTrend: response.charts.monthlyTrend,
-        },
-        recentTickets: response.recentTickets,
+  if (!USE_MOCK_DATA) {
+    const response = await apiFetch<{
+      cards: DashboardSummary["cards"];
+      slaBuckets: DashboardSummary["slaBuckets"];
+      charts: {
+        statusBreakdown: Array<{ _id: string; count: number }>;
+        priorityBreakdown: Array<{ _id: string; count: number }>;
+        typeBreakdown: Array<{ _id: string; count: number }>;
+        monthlyTrend: Array<{ label: string; created: number }>;
       };
-    } catch {
-      // Fall back to local mock state for this workspace.
-    }
+      recentTickets: TicketRecord[];
+    }>("/api/dashboard");
+
+    return {
+      cards: response.cards,
+      slaBuckets: response.slaBuckets,
+      charts: {
+        statusBreakdown: response.charts.statusBreakdown.map((item) => ({
+          label: item._id,
+          value: item.count,
+        })),
+        priorityBreakdown: response.charts.priorityBreakdown.map((item) => ({
+          label: item._id,
+          value: item.count,
+        })),
+        typeBreakdown: response.charts.typeBreakdown.map((item) => ({
+          label: item._id,
+          value: item.count,
+        })),
+        monthlyTrend: response.charts.monthlyTrend,
+      },
+      recentTickets: response.recentTickets,
+    };
   }
 
   const db = readMockDb();
@@ -685,33 +688,29 @@ export async function fetchDashboardSummary(): Promise<DashboardSummary> {
 }
 
 export async function fetchReports(): Promise<TicketReports> {
-  if (API_ENABLED) {
-    try {
-      const response = await apiFetch<{
-        summary: TicketReports["summary"];
-        categoryBreakdown: Array<{ _id: string; count: number }>;
-        technicianWorkload: Array<{ _id: string; count: number }>;
-        typeBreakdown: Array<{ _id: string; count: number }>;
-      }>("/api/reports");
+  if (!USE_MOCK_DATA) {
+    const response = await apiFetch<{
+      summary: TicketReports["summary"];
+      categoryBreakdown: Array<{ _id: string; count: number }>;
+      technicianWorkload: Array<{ _id: string; count: number }>;
+      typeBreakdown: Array<{ _id: string; count: number }>;
+    }>("/api/reports");
 
-      return {
-        summary: response.summary,
-        categoryBreakdown: response.categoryBreakdown.map((item) => ({
-          label: item._id,
-          value: item.count,
-        })),
-        technicianWorkload: response.technicianWorkload.map((item) => ({
-          label: item._id,
-          value: item.count,
-        })),
-        typeBreakdown: response.typeBreakdown.map((item) => ({
-          label: item._id,
-          value: item.count,
-        })),
-      };
-    } catch {
-      // Fall back to local mock state for this workspace.
-    }
+    return {
+      summary: response.summary,
+      categoryBreakdown: response.categoryBreakdown.map((item) => ({
+        label: item._id,
+        value: item.count,
+      })),
+      technicianWorkload: response.technicianWorkload.map((item) => ({
+        label: item._id,
+        value: item.count,
+      })),
+      typeBreakdown: response.typeBreakdown.map((item) => ({
+        label: item._id,
+        value: item.count,
+      })),
+    };
   }
 
   const db = readMockDb();
